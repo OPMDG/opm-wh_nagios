@@ -1,0 +1,8 @@
+# wh_nagios extension
+comment = 'Nagios warehouse for pgFactory'
+default_version = '1.0'
+module_pathname = '$libdir/wh_nagios'
+requires = ''
+superuser = false
+relocatable = false
+schema = 'wh_nagios'
