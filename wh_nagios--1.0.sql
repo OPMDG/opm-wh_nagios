@@ -56,7 +56,7 @@ TODO: Handle seracl
                 END LOOP;
 
 				--Do we have all informations needed ?
-                IF ( (cur->'hostname' IS NOT NULL) AND (cur->'servicedesc' IS NOT NULL) AND (cur->'label' IS NOT NULL) AND (cur->'timet' IS NOT NULL) AND (cur->'value' IS NOT NULL) ) THEN
+                IF ( ((cur->'hostname') IS NOT NULL) AND ((cur->'servicedesc') IS NOT NULL) AND ((cur->'label') IS NOT NULL) AND ((cur->'timet') IS NOT NULL) AND ((cur->'value') IS NOT NULL) ) THEN
                     --Does the service exists ?
     				SELECT id INTO service_id
     				FROM wh_nagios.services
