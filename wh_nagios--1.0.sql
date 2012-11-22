@@ -34,47 +34,49 @@ DECLARE
 	c_hub CURSOR FOR SELECT * FROM wh_nagios.hub FOR UPDATE NOWAIT;
 	r_hub record;
 	service_id integer;
+    i integer;
+    cur hstore;
 BEGIN
 /*
 TODO: Handle seracl 
 
 */
 	BEGIN
-		SET search_path to wh_nagios;
 		FOR r_hub IN c_hub LOOP
-			/*Specific structure key-value:
-			1-2: min
-			3-4: warning
-			5-6: value
-			7-8: critical
-			9-10: label
-			11-12: hostname
-			13-14: max
-			15-16: unit
-			17-18: state
-			19-20: timet
-			21-22: service
-			*/
-			IF (array_upper(r_hub.data,1) = 22) THEN
-				--Does the service exists ?
-				SELECT id INTO STRICT service_id
-				FROM wh_nagios.services
-				WHERE hostname = r_hub.data[12]
-					AND service = r_hub.data[22]
-					AND label = r_hub.data[10];
+            --Check 1 dimension,even number of data and at least 10 vals
+			IF ((array_upper(r_hub.data,2) IS NULL) AND (array_upper(r_hub.data,1) > 9) AND ((array_upper(r_hub.data,1) % 2) = 0)) THEN
+                cur := NULL;
+                --Get all data as hstore
+                FOR i IN 1..array_upper(r_hub.data,1) BY 2 LOOP
+                    IF (cur IS NULL) THEN
+                        cur := hstore(lower(r_hub.data[i]),r_hub.data[i+1]);
+                    ELSE
+                        cur := cur || hstore(lower(r_hub.data[i]),r_hub.data[i+1]);
+                    END IF;
+                END LOOP;
+
+				--Do we have all informations needed ?
+                IF ( (cur->'hostname' IS NOT NULL) AND (cur->'servicedesc' IS NOT NULL) AND (cur->'label' IS NOT NULL) AND (cur->'timet' IS NOT NULL) AND (cur->'value' IS NOT NULL) ) THEN
+                    --Does the service exists ?
+    				SELECT id INTO service_id
+    				FROM wh_nagios.services
+    				WHERE hostname = (cur->'hostname')
+    					AND service = (cur->'servicedesc')
+    					AND label = (cur->'label');
 				
-				IF NOT FOUND THEN
-					-- The trigger on wh_nagios.services will create the partition counters_detail_$service_id automatically
-					INSERT INTO wh_nagios.services (id,hostname,warehouse,service,label,seracl,unit,state,min,max,critical,warning)
-					VALUES (default,r_hub.data[12],'wh_nagios',r_hub.data[22],r_hub.data[10],'{}'::aclitem[],r_hub.data[16],r_hub.data[18],r_hub.data[2]::numeric,r_hub.data[14]::numeric,r_hub.data[8]::numeric,r_hub.data[4]::numeric)
-					RETURNING id INTO STRICT service_id;
-				END IF;
-				BEGIN
-					EXECUTE format('INSERT INTO wh_nagios.counters_detail_%s (timet,value) VALUES (TIMESTAMP WITH TIME ZONE ''epoch''+%L * INTERVAL ''1 second'', %L );',service_id,r_hub.data[20],r_hub.data[6]);
-				EXCEPTION
-					WHEN OTHERS THEN
-				END;
-			END IF;
+    				IF NOT FOUND THEN
+    					-- The trigger on wh_nagios.services will create the partition counters_detail_$service_id automatically
+    					INSERT INTO wh_nagios.services (id,hostname,warehouse,service,label,seracl,unit,state,min,max,critical,warning)
+    					VALUES (default,cur->'hostname','wh_nagios',cur->'servicedesc',cur->'label','{}'::aclitem[],cur->'uom',cur->'servicestate',(cur->'min')::numeric,(cur->'max')::numeric,(cur->'critical')::numeric,(cur->'warning')::numeric)
+    					RETURNING id INTO STRICT service_id;
+    				END IF;
+    				BEGIN
+    					EXECUTE format('INSERT INTO wh_nagios.counters_detail_%s (timet,value) VALUES (TIMESTAMP WITH TIME ZONE ''epoch''+%L * INTERVAL ''1 second'', %L );',service_id,cur->'timet',cur->'value');
+    				EXCEPTION
+    					WHEN OTHERS THEN
+    				END;
+                END IF;
+    		END IF;
 			--Delete current line
 			DELETE FROM wh_nagios.hub WHERE CURRENT OF c_hub;
 		END LOOP;
