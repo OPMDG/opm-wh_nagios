@@ -9,6 +9,7 @@ CREATE TABLE wh_nagios.hub (
 REVOKE ALL ON TABLE wh_nagios.hub FROM public ;
 
 CREATE TABLE wh_nagios.services (
+	label		text,
 	unit		text,
 	state		text,
 	min			numeric,
