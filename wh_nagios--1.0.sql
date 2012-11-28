@@ -6,6 +6,7 @@ CREATE TABLE wh_nagios.hub (
 	data text[]
 );
 
+ALTER TABLE wh_nagios.hub OWNER TO pgfactory;
 REVOKE ALL ON TABLE wh_nagios.hub FROM public ;
 
 CREATE TABLE wh_nagios.services (
@@ -19,6 +20,7 @@ CREATE TABLE wh_nagios.services (
 )
 INHERITS (public.services);
 
+ALTER TABLE wh_nagios.services OWNER TO pgfactory;
 ALTER TABLE wh_nagios.services ADD PRIMARY KEY (id);
 CREATE UNIQUE INDEX idx_wh_nagios_services_hostname_service_label
     ON wh_nagios.services USING btree (hostname, service, label);
@@ -90,6 +92,8 @@ TODO: Handle seracl
 END;
 $$;
 
+ALTER FUNCTION wh_nagios.dispatch_record() OWNER TO pgfactory;
+
 --Automatically create a new partition when a service is added.
 CREATE OR REPLACE FUNCTION wh_nagios.create_partition_on_insert_service() RETURNS trigger
 	LANGUAGE plpgsql
@@ -104,6 +108,8 @@ EXCEPTION
 END;
 $$;
 
+ALTER FUNCTION wh_nagios.create_partition_on_insert_service() OWNER TO pgfactory;
+
 --Automatically delete a partition when a service is removed.
 CREATE OR REPLACE FUNCTION wh_nagios.drop_partition_on_delete_service() RETURNS trigger
 	LANGUAGE plpgsql
@@ -117,6 +123,7 @@ EXCEPTION
 END;
 $$;
 
+ALTER FUNCTION wh_nagios.drop_partition_on_delete_service() OWNER TO pgfactory;
 
 CREATE TRIGGER create_partition_on_insert_service BEFORE INSERT ON wh_nagios.services FOR EACH ROW EXECUTE PROCEDURE wh_nagios.create_partition_on_insert_service();
 CREATE TRIGGER drop_partition_on_delete_service AFTER DELETE ON wh_nagios.services FOR EACH ROW EXECUTE PROCEDURE wh_nagios.drop_partition_on_delete_service();
