@@ -261,6 +261,38 @@ $$;
 
 ALTER FUNCTION wh_nagios.cleanup_partition(bigint, timestamp with time zone) OWNER TO pgfactory;
 
+CREATE FUNCTION wh_nagios.get_sampled_service_data(id_service bigint, timet_begin timestamp with time zone, timet_end timestamp with time zone, sample_sec integer) RETURNS TABLE(timet timestamp with time zone, value numeric)
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    IF (sample_sec > 0) THEN
+        RETURN QUERY EXECUTE 'SELECT min(timet), max(value) FROM (SELECT (unnest(records)).* FROM wh_nagios.counters_detail_'||id_service||' where date_records >= $1 - ''1 day''::interval and date_records <= $2) as tmp WHERE timet >= $1 AND timet <= $2  group by (extract(epoch from timet)::float8/$3)::bigint*$3' USING timet_begin,timet_end,sample_sec;
+    ELSE
+        RETURN QUERY EXECUTE 'SELECT min(timet), max(value) FROM (SELECT (unnest(records)).* FROM wh_nagios.counters_detail_'||id_service||' where date_records >= $1 - ''1 day''::interval and date_records <= $2) as tmp WHERE timet >= $1 AND timet <= $2' USING timet_begin,timet_end;
+    END IF;
+END;
+$$;
+ALTER FUNCTION wh_nagios.get_sampled_service_data(id_service bigint, timet_begin timestamp with time zone, timet_end timestamp with time zone, sample_sec integer) OWNER TO pgfactory;
+
+CREATE FUNCTION wh_nagios.get_sampled_service_data(i_hostname text, i_service text, i_label text, timet_begin timestamp with time zone, timet_end timestamp with time zone, sample_sec integer) RETURNS TABLE(timet timestamp with time zone, value numeric)
+    LANGUAGE plpgsql
+    AS $$
+DECLARE
+    v_id_service bigint;
+BEGIN
+    SELECT id INTO v_id_service FROM wh_nagios.services
+    WHERE hostname = i_hostname
+        AND service = i_service
+        AND label = i_label;
+    IF NOT FOUND THEN
+        RETURN;
+    ELSE
+        RETURN QUERY SELECT * FROM wh_nagios.get_sampled_service_data(v_id_service,timet_begin,timet_end,sample_sec);
+    END IF;
+END;
+$$;
+ALTER FUNCTION wh_nagios.get_sampled_service_data(i_hostname text, i_service text, i_label text, timet_begin timestamp with time zone, timet_end timestamp with time zone, sample_sec integer) OWNER TO pgfactory;
+
 --Automatically create a new partition when a service is added.
 CREATE OR REPLACE FUNCTION wh_nagios.create_partition_on_insert_service() RETURNS trigger
     LANGUAGE plpgsql
