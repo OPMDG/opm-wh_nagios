@@ -25,8 +25,7 @@ ALTER TABLE wh_nagios.hub_reject OWNER TO pgfactory;
 REVOKE ALL ON TABLE wh_nagios.hub_reject FROM public;
 
 CREATE TABLE wh_nagios.services (
-    label            text,
-    unit             text NOT NULL,
+    unit             text,
     state            text,
     min              numeric,
     max              numeric,
@@ -39,17 +38,34 @@ INHERITS (public.services);
 
 ALTER TABLE wh_nagios.services OWNER TO pgfactory;
 ALTER TABLE wh_nagios.services ADD PRIMARY KEY (id);
-CREATE UNIQUE INDEX idx_wh_nagios_services_hostname_service_label
-    ON wh_nagios.services USING btree (hostname, service, label);
+CREATE UNIQUE INDEX idx_wh_nagios_services_hostname
+    ON wh_nagios.services USING btree (hostname, service);
 REVOKE ALL ON TABLE wh_nagios.services FROM public ;
 
-SELECT pg_catalog.pg_extension_config_dump('wh_nagios.services', '');
+CREATE TABLE wh_nagios.labels (
+    id              bigserial PRIMARY KEY,
+    id_service     bigint,
+    label           text NOT NULL
+);
+ALTER TABLE wh_nagios.labels OWNER TO pgfactory;
+REVOKE ALL ON wh_nagios.labels FROM public;
 
+CREATE VIEW wh_nagios.services_labels AS
+    SELECT s.*,l.id as id_label,l.label
+    FROM wh_nagios.services s
+    JOIN wh_nagios.labels l
+        ON s.id = l.id_service;
+ALTER VIEW wh_nagios.services_labels OWNER TO pgfactory;
+REVOKE ALL ON wh_nagios.services_labels FROM public;
+
+SELECT pg_catalog.pg_extension_config_dump('wh_nagios.services', '');
+SELECT pg_catalog.pg_extension_config_dump('wh_nagios.labels', '');
+SELECT pg_catalog.pg_extension_config_dump('wh_nagios.labels_id_seq', '');
 
 /* wh_nagios.dispatch_record(boolean)
 Dispatch records from wh_nagios.hub into counters_detail_$ID
 
-$ID is found in wh_nagios.services, with correct hostname,servicedesc and label
+$ID is found in wh_nagios.services_label and wh_nagios.services, with correct hostname,servicedesc and label
 
 @log_error: If true, will report errors and details in wh_nagios.hub_reject
 @return : true if everything went well.
@@ -62,7 +78,8 @@ DECLARE
     --Use NOWAIT so there can't be two concurrent processes
     c_hub CURSOR FOR SELECT * FROM wh_nagios.hub FOR UPDATE NOWAIT;
     r_hub record;
-    service_id integer;
+    v_service_id bigint;
+    v_service_label_id bigint;
     i integer;
     cur hstore;
     msg_err text;
@@ -92,14 +109,12 @@ TODO: Handle seracl
                     SELECT * INTO servicesrow
                     FROM wh_nagios.services
                     WHERE hostname = (cur->'hostname')
-                        AND service = (cur->'servicedesc')
-                        AND label = (cur->'label');
+                        AND service = (cur->'servicedesc');
 
                     IF NOT FOUND THEN
-                        -- The trigger on wh_nagios.services will create the partition counters_detail_$service_id automatically
-                        INSERT INTO wh_nagios.services (id,hostname,warehouse,service,label,seracl,unit,state,min,max,critical,warning)
-                        VALUES (default,cur->'hostname','wh_nagios',cur->'servicedesc',cur->'label','{}'::aclitem[],cur->'uom',cur->'servicestate',(cur->'min')::numeric,(cur->'max')::numeric,(cur->'critical')::numeric,(cur->'warning')::numeric)
-                        RETURNING id INTO STRICT service_id;
+                        INSERT INTO wh_nagios.services (id,hostname,warehouse,service,seracl,unit,state,min,max,critical,warning)
+                        VALUES (default,cur->'hostname','wh_nagios',cur->'servicedesc','{}'::aclitem[],cur->'uom',cur->'servicestate',(cur->'min')::numeric,(cur->'max')::numeric,(cur->'critical')::numeric,(cur->'warning')::numeric)
+                        RETURNING id INTO STRICT v_service_id;
                         EXECUTE format('UPDATE wh_nagios.services SET oldest_record = timestamp with time zone ''epoch''+%L * INTERVAL ''1 second''',(cur->'timet'));
                     ELSE
                         --Do we need to update the service ?
@@ -113,16 +128,28 @@ TODO: Handle seracl
                             OR (servicesrow.newest_record +'5 minutes'::interval < now() )
                         ) THEN
                             EXECUTE format('UPDATE wh_nagios.services SET last_modified = CURRENT_DATE,
-                                state = %s,
+                                state = %L,
                                 min = %L,
                                 max = %L,
                                 warning = %L,
                                 critical = %L,
-                                unit = %s,
-                                newest_record= timestamp with time zone+%L * INTERVAL ''1 second''
-                            WHERE id = servicesrow.id',(cur->'servicestate'),(cur->'min'),(cur->'max'),(cur->'warning'),(cur->'critical'),(cur->'unit'),(cur->'timet'));
+                                unit = %L,
+                                newest_record= timestamp with time zone ''epoch'' +%L * INTERVAL ''1 second''
+                            WHERE id = %s',(cur->'servicestate'),(cur->'min'),(cur->'max'),(cur->'warning'),(cur->'critical'),(cur->'unit'),(cur->'timet'),servicesrow.id);
                         END IF;
-                        service_id := servicesrow.id;
+                        v_service_id := servicesrow.id;
+                    END IF;
+
+                    --Does the label exists ?
+                    SELECT id INTO v_service_label_id
+                        FROM wh_nagios.labels
+                        WHERE id_service = v_service_id
+                        AND label = (cur->'label');
+
+                    IF NOT FOUND THEN
+                        -- The trigger on wh_nagios.services_label will create the partition counters_detail_$service_id automatically
+                        INSERT INTO wh_nagios.labels (id_service,label)
+                            VALUES (v_service_id,(cur->'label')) RETURNING id INTO v_service_label_id;
                     END IF;
 
                     IF (servicesrow IS NOT NULL AND servicesrow.last_cleanup < now() - '10 days'::interval) THEN
@@ -130,7 +157,7 @@ TODO: Handle seracl
                     END IF;
 
                     BEGIN
-                        EXECUTE format('INSERT INTO wh_nagios.counters_detail_%s (date_records,records) VALUES (date_trunc(''day'',timestamp with time zone ''epoch''+%L * INTERVAL ''1 second''),array[row(timestamp with time zone ''epoch''+%L * INTERVAL ''1 second'',%L )]::wh_nagios.counters_detail[]);',service_id,cur->'timet',cur->'timet',cur->'value');
+                        EXECUTE format('INSERT INTO wh_nagios.counters_detail_%s (date_records,records) VALUES (date_trunc(''day'',timestamp with time zone ''epoch''+%L * INTERVAL ''1 second''),array[row(timestamp with time zone ''epoch''+%L * INTERVAL ''1 second'',%L )]::wh_nagios.counters_detail[])',v_service_label_id,cur->'timet',cur->'timet',cur->'value');
                     EXCEPTION
                         WHEN OTHERS THEN
                             IF (log_error = TRUE) THEN
@@ -261,14 +288,14 @@ $$;
 
 ALTER FUNCTION wh_nagios.cleanup_partition(bigint, timestamp with time zone) OWNER TO pgfactory;
 
-CREATE FUNCTION wh_nagios.get_sampled_service_data(id_service bigint, timet_begin timestamp with time zone, timet_end timestamp with time zone, sample_sec integer) RETURNS TABLE(timet timestamp with time zone, value numeric)
+CREATE FUNCTION wh_nagios.get_sampled_service_data(id_label bigint, timet_begin timestamp with time zone, timet_end timestamp with time zone, sample_sec integer) RETURNS TABLE(timet timestamp with time zone, value numeric)
     LANGUAGE plpgsql
     AS $$
 BEGIN
     IF (sample_sec > 0) THEN
-        RETURN QUERY EXECUTE 'SELECT min(timet), max(value) FROM (SELECT (unnest(records)).* FROM wh_nagios.counters_detail_'||id_service||' where date_records >= $1 - ''1 day''::interval and date_records <= $2) as tmp WHERE timet >= $1 AND timet <= $2  group by (extract(epoch from timet)::float8/$3)::bigint*$3' USING timet_begin,timet_end,sample_sec;
+        RETURN QUERY EXECUTE 'SELECT min(timet), max(value) FROM (SELECT (unnest(records)).* FROM wh_nagios.counters_detail_'||id_label||' where date_records >= $1 - ''1 day''::interval and date_records <= $2) as tmp WHERE timet >= $1 AND timet <= $2  group by (extract(epoch from timet)::float8/$3)::bigint*$3' USING timet_begin,timet_end,sample_sec;
     ELSE
-        RETURN QUERY EXECUTE 'SELECT min(timet), max(value) FROM (SELECT (unnest(records)).* FROM wh_nagios.counters_detail_'||id_service||' where date_records >= $1 - ''1 day''::interval and date_records <= $2) as tmp WHERE timet >= $1 AND timet <= $2' USING timet_begin,timet_end;
+        RETURN QUERY EXECUTE 'SELECT min(timet), max(value) FROM (SELECT (unnest(records)).* FROM wh_nagios.counters_detail_'||id_label||' where date_records >= $1 - ''1 day''::interval and date_records <= $2) as tmp WHERE timet >= $1 AND timet <= $2' USING timet_begin,timet_end;
     END IF;
 END;
 $$;
@@ -278,27 +305,28 @@ CREATE FUNCTION wh_nagios.get_sampled_service_data(i_hostname text, i_service te
     LANGUAGE plpgsql
     AS $$
 DECLARE
-    v_id_service bigint;
+    v_id_label bigint;
 BEGIN
-    SELECT id INTO v_id_service FROM wh_nagios.services
+    SELECT id INTO v_id_label FROM wh_nagios.services_label
     WHERE hostname = i_hostname
         AND service = i_service
         AND label = i_label;
     IF NOT FOUND THEN
         RETURN;
     ELSE
-        RETURN QUERY SELECT * FROM wh_nagios.get_sampled_service_data(v_id_service,timet_begin,timet_end,sample_sec);
+        RETURN QUERY SELECT * FROM wh_nagios.get_sampled_service_data(v_id_label,timet_begin,timet_end,sample_sec);
     END IF;
 END;
 $$;
 ALTER FUNCTION wh_nagios.get_sampled_service_data(i_hostname text, i_service text, i_label text, timet_begin timestamp with time zone, timet_end timestamp with time zone, sample_sec integer) OWNER TO pgfactory;
 
 --Automatically create a new partition when a service is added.
-CREATE OR REPLACE FUNCTION wh_nagios.create_partition_on_insert_service() RETURNS trigger
+CREATE OR REPLACE FUNCTION wh_nagios.create_partition_on_insert_label() RETURNS trigger
     LANGUAGE plpgsql
     AS $$
 BEGIN
     EXECUTE 'CREATE TABLE wh_nagios.counters_detail_' || NEW.id || ' (date_records date, records wh_nagios.counters_detail[])';
+    EXECUTE 'ALTER TABLE wh_nagios.counters_detail_' || NEW.id || ' OWNER TO pgfactory;';
     RETURN NEW;
 EXCEPTION
     WHEN duplicate_table THEN
@@ -307,10 +335,10 @@ EXCEPTION
 END;
 $$;
 
-ALTER FUNCTION wh_nagios.create_partition_on_insert_service() OWNER TO pgfactory;
+ALTER FUNCTION wh_nagios.create_partition_on_insert_label() OWNER TO pgfactory;
 
 --Automatically delete a partition when a service is removed.
-CREATE OR REPLACE FUNCTION wh_nagios.drop_partition_on_delete_service() RETURNS trigger
+CREATE OR REPLACE FUNCTION wh_nagios.drop_partition_on_delete_label() RETURNS trigger
     LANGUAGE plpgsql
     AS $$
 BEGIN
@@ -322,7 +350,7 @@ EXCEPTION
 END;
 $$;
 
-ALTER FUNCTION wh_nagios.drop_partition_on_delete_service() OWNER TO pgfactory;
+ALTER FUNCTION wh_nagios.drop_partition_on_delete_label() OWNER TO pgfactory;
 
-CREATE TRIGGER create_partition_on_insert_service BEFORE INSERT ON wh_nagios.services FOR EACH ROW EXECUTE PROCEDURE wh_nagios.create_partition_on_insert_service();
-CREATE TRIGGER drop_partition_on_delete_service AFTER DELETE ON wh_nagios.services FOR EACH ROW EXECUTE PROCEDURE wh_nagios.drop_partition_on_delete_service();
+CREATE TRIGGER create_partition_on_insert_service BEFORE INSERT ON wh_nagios.labels FOR EACH ROW EXECUTE PROCEDURE wh_nagios.create_partition_on_insert_label();
+CREATE TRIGGER drop_partition_on_delete_service AFTER DELETE ON wh_nagios.labels FOR EACH ROW EXECUTE PROCEDURE wh_nagios.drop_partition_on_delete_label();
