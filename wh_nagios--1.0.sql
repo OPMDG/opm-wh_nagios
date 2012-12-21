@@ -3,6 +3,8 @@
 
 SET statement_timeout TO 0;
 
+ALTER SCHEMA wh_nagios OWNER TO pgfactory;
+
 CREATE TYPE wh_nagios.counters_detail AS (
     timet timestamp with time zone,
     value numeric
@@ -44,11 +46,13 @@ REVOKE ALL ON TABLE wh_nagios.services FROM public ;
 
 CREATE TABLE wh_nagios.labels (
     id              bigserial PRIMARY KEY,
-    id_service     bigint,
+    id_service		bigint NOT NULL,
     label           text NOT NULL
 );
 ALTER TABLE wh_nagios.labels OWNER TO pgfactory;
 REVOKE ALL ON wh_nagios.labels FROM public;
+CREATE INDEX ON wh_nagios.labels USING btree (id_service);
+ALTER TABLE wh_nagios.labels ADD CONSTRAINT wh_nagios_labels_fk FOREIGN KEY (id_service) REFERENCES wh_nagios.services (id) MATCH FULL ON DELETE CASCADE ON UPDATE CASCADE;
 
 CREATE VIEW wh_nagios.services_labels AS
     SELECT s.*,l.id as id_label,l.label
