@@ -345,6 +345,137 @@ END;
 $$;
 ALTER FUNCTION wh_nagios.get_sampled_service_data(i_hostname text, i_service text, i_label text, timet_begin timestamp with time zone, timet_end timestamp with time zone, sample_sec integer) OWNER TO pgfactory;
 
+
+
+/*
+wh_nagios.grant_dispatcher(role)
+
+@return rc: state of the operation
+ */
+CREATE OR REPLACE FUNCTION
+wh_nagios.grant_dispatcher( IN p_rolname name, OUT rc boolean)
+AS $$
+DECLARE
+    v_state   TEXT;
+    v_msg     TEXT;
+    v_detail  TEXT;
+    v_hint    TEXT;
+    v_context TEXT;
+BEGIN
+
+    /* verify that the give role exists */
+    rc := (is_pgf_role(p_rolname)).rolname IS NOT NULL;
+
+    IF NOT rc THEN
+        RAISE WARNING 'Given role ''%'' is not a PGFactory role!', p_rolname;
+        RETURN;
+    END IF;
+
+    EXECUTE format('GRANT USAGE ON SCHEMA wh_nagios TO %I', p_rolname);
+    EXECUTE format('GRANT USAGE ON SEQUENCE wh_nagios.hub_id_seq TO %I', p_rolname);
+    EXECUTE format('GRANT INSERT ON TABLE wh_nagios.hub TO %I', p_rolname);
+
+    RAISE NOTICE 'GRANTED';
+
+    rc := true;
+
+    RETURN;
+
+EXCEPTION
+    WHEN OTHERS THEN
+        GET STACKED DIAGNOSTICS
+            v_state   = RETURNED_SQLSTATE,
+            v_msg     = MESSAGE_TEXT,
+            v_detail  = PG_EXCEPTION_DETAIL,
+            v_hint    = PG_EXCEPTION_HINT,
+            v_context = PG_EXCEPTION_CONTEXT;
+        raise WARNING 'Could not grant dispatch to ''%'' on wh_nagios:
+            state  : %
+            message: %
+            detail : %
+            hint   : %
+            context: %', p_rolname, v_state, v_msg, v_detail, v_hint, v_context;
+
+        rc := false;
+END;
+$$
+LANGUAGE plpgsql
+VOLATILE
+LEAKPROOF
+SECURITY DEFINER;
+
+ALTER FUNCTION wh_nagios.grant_dispatcher(IN name, OUT boolean) OWNER TO pgfactory;
+REVOKE ALL ON FUNCTION wh_nagios.grant_dispatcher(IN name, OUT boolean) FROM public;
+GRANT ALL ON FUNCTION wh_nagios.grant_dispatcher(IN name, OUT boolean) TO pgf_admins;
+
+COMMENT ON FUNCTION wh_nagios.grant_dispatcher(IN name, OUT boolean)
+    IS 'Grant a role to dispatch performance data in warehouse wh_nagios.';
+
+/*
+wh_nagios.revoke_dispatcher(role)
+
+@return rc: state of the operation
+ */
+CREATE OR REPLACE FUNCTION
+wh_nagios.revoke_dispatcher( IN p_rolname name, OUT rc boolean)
+AS $$
+DECLARE
+    v_state   TEXT;
+    v_msg     TEXT;
+    v_detail  TEXT;
+    v_hint    TEXT;
+    v_context TEXT;
+BEGIN
+
+    /* verify that the give role exists */
+    rc := (is_pgf_role(p_rolname)).rolname IS NOT NULL;
+
+    IF NOT rc THEN
+        RAISE WARNING 'Given role ''%'' is not a PGFactory role!', p_rolname;
+        RETURN;
+    END IF;
+
+    EXECUTE format('REVOKE USAGE ON SCHEMA wh_nagios FROM %I', p_rolname);
+    EXECUTE format('REVOKE USAGE ON SEQUENCE wh_nagios.hub_id_seq FROM %I', p_rolname);
+    EXECUTE format('REVOKE INSERT ON TABLE wh_nagios.hub FROM %I', p_rolname);
+
+    RAISE NOTICE 'REVOKED';
+
+    rc := true;
+
+    RETURN;
+
+EXCEPTION
+    WHEN OTHERS THEN
+        GET STACKED DIAGNOSTICS
+            v_state   = RETURNED_SQLSTATE,
+            v_msg     = MESSAGE_TEXT,
+            v_detail  = PG_EXCEPTION_DETAIL,
+            v_hint    = PG_EXCEPTION_HINT,
+            v_context = PG_EXCEPTION_CONTEXT;
+        raise WARNING 'Could not grant dispatch to ''%'' on wh_nagios:
+            state  : %
+            message: %
+            detail : %
+            hint   : %
+            context: %', p_rolname, v_state, v_msg, v_detail, v_hint, v_context;
+
+        rc := false;
+END;
+$$
+LANGUAGE plpgsql
+VOLATILE
+LEAKPROOF
+SECURITY DEFINER;
+
+ALTER FUNCTION wh_nagios.revoke_dispatcher(IN name, OUT boolean) OWNER TO pgfactory;
+REVOKE ALL ON FUNCTION wh_nagios.revoke_dispatcher(IN name, OUT boolean) FROM public;
+GRANT ALL ON FUNCTION wh_nagios.revoke_dispatcher(IN name, OUT boolean) TO pgf_admins;
+
+COMMENT ON FUNCTION wh_nagios.revoke_dispatcher(IN name, OUT boolean)
+    IS 'Revoke dispatch performance data from a role in wh_nagios.';
+
+
 --Automatically create a new partition when a service is added.
 CREATE OR REPLACE FUNCTION wh_nagios.create_partition_on_insert_label() RETURNS trigger
     LANGUAGE plpgsql
