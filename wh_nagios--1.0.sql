@@ -66,6 +66,48 @@ SELECT pg_catalog.pg_extension_config_dump('wh_nagios.services', '');
 SELECT pg_catalog.pg_extension_config_dump('wh_nagios.labels', '');
 SELECT pg_catalog.pg_extension_config_dump('wh_nagios.labels_id_seq', '');
 
+CREATE OR REPLACE FUNCTION wh_nagios.list_label(p_service_id bigint) RETURNS TABLE (id_label bigint, label text)
+AS $$
+DECLARE
+BEGIN
+    IF pg_has_role(session_user, 'pgf_admins', 'MEMBER') THEN
+        RETURN QUERY SELECT l.id, l.label
+            FROM wh_nagios.labels l;
+    ELSE
+        RETURN QUERY EXECUTE format('WITH RECURSIVE
+                v_roles AS (
+                    SELECT pr.oid AS oid, r.rolname, ARRAY[r.rolname] AS roles
+                      FROM public.roles r
+                      JOIN pg_catalog.pg_roles pr ON (r.rolname = pr.rolname)
+                     WHERE r.rolname = %L
+                    UNION ALL
+                    SELECT pa.oid, v.rolname, v.roles|| pa.rolname::text
+                      FROM v_roles v
+                      JOIN pg_auth_members am ON (am.member = v.oid)
+                      JOIN pg_roles pa ON (am.roleid = pa.oid)
+                     WHERE NOT pa.rolname::name = ANY(v.roles)
+                ),
+                acl AS (
+                    SELECT l.id, l.label, (aclexplode(seracl)).*
+                    FROM wh_nagios.services s
+                    JOIN wh_nagios.labels l ON l.id_service = s.id
+                    WHERE l.id = %s
+                    AND array_length(seracl, 1) IS NOT NULL
+                )
+                SELECT id, label
+                FROM acl
+                WHERE grantee IN (SELECT oid FROM v_roles) AND privilege_type = %L',
+            session_user,p_service_id,'SELECT'
+        );
+        END IF;
+END;
+$$
+LANGUAGE plpgsql
+VOLATILE
+LEAKPROOF
+SECURITY DEFINER;
+ALTER FUNCTION wh_nagios.list_label(bigint) OWNER TO pgfactory;
+
 /* wh_nagios.dispatch_record(boolean)
 Dispatch records from wh_nagios.hub into counters_detail_$ID
 
