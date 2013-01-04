@@ -426,7 +426,7 @@ DECLARE
 BEGIN
 
     /* verify that the give role exists */
-    rc := (is_pgf_role(p_rolname)).rolname IS NOT NULL;
+    rc := public.is_pgf_role(p_rolname);
 
     IF NOT rc THEN
         RAISE WARNING 'Given role ''%'' is not a PGFactory role!', p_rolname;
@@ -490,7 +490,7 @@ DECLARE
 BEGIN
 
     /* verify that the give role exists */
-    rc := (is_pgf_role(p_rolname)).rolname IS NOT NULL;
+    rc := public.is_pgf_role(p_rolname);
 
     IF NOT rc THEN
         RAISE WARNING 'Given role ''%'' is not a PGFactory role!', p_rolname;
