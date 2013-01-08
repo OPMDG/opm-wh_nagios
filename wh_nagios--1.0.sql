@@ -4,7 +4,7 @@
 SET statement_timeout TO 0;
 
 ALTER SCHEMA wh_nagios OWNER TO pgfactory;
-GRANT USAGE ON SCHEMA wh_nagios TO pgfactory;
+GRANT USAGE ON SCHEMA wh_nagios TO pgf_roles;
 
 CREATE TYPE wh_nagios.counters_detail AS (
     timet timestamp with time zone,
@@ -73,7 +73,8 @@ DECLARE
 BEGIN
     IF pg_has_role(session_user, 'pgf_admins', 'MEMBER') THEN
         RETURN QUERY SELECT l.id, l.label
-            FROM wh_nagios.labels l;
+            FROM wh_nagios.labels l
+            WHERE l.id = p_service_id;
     ELSE
         RETURN QUERY EXECUTE format('WITH RECURSIVE
                 v_roles AS (
@@ -82,7 +83,7 @@ BEGIN
                       JOIN pg_catalog.pg_roles pr ON (r.rolname = pr.rolname)
                      WHERE r.rolname = %L
                     UNION ALL
-                    SELECT pa.oid, v.rolname, v.roles|| pa.rolname::text
+                    SELECT pa.oid, v.rolname, v.roles|| pa.rolname
                       FROM v_roles v
                       JOIN pg_auth_members am ON (am.member = v.oid)
                       JOIN pg_roles pa ON (am.roleid = pa.oid)
@@ -108,6 +109,8 @@ VOLATILE
 LEAKPROOF
 SECURITY DEFINER;
 ALTER FUNCTION wh_nagios.list_label(bigint) OWNER TO pgfactory;
+REVOKE ALL ON FUNCTION wh_nagios.list_label(bigint) FROM public;
+GRANT EXECUTE ON FUNCTION wh_nagios.list_label(bigint) TO pgf_roles;
 
 /* wh_nagios.dispatch_record(boolean)
 Dispatch records from wh_nagios.hub into counters_detail_$ID
