@@ -384,9 +384,9 @@ CREATE FUNCTION wh_nagios.get_sampled_service_data(id_label bigint, timet_begin 
     AS $$
 BEGIN
     IF (sample_sec > 0) THEN
-        RETURN QUERY EXECUTE 'SELECT min(timet), max(value) FROM (SELECT (unnest(records)).* FROM wh_nagios.counters_detail_'||id_label||' where date_records >= $1 - ''1 day''::interval and date_records <= $2) as tmp WHERE timet >= $1 AND timet <= $2  group by (extract(epoch from timet)::float8/$3)::bigint*$3' USING timet_begin,timet_end,sample_sec;
+        RETURN QUERY EXECUTE 'SELECT min(timet), max(value) FROM (SELECT (unnest(records)).* FROM wh_nagios.counters_detail_'||id_label||' where date_records >= $1 - ''1 day''::interval and date_records <= $2) as tmp WHERE timet >= $1 AND timet <= $2  group by (extract(epoch from timet)::float8/$3)::bigint*$3 ORDER BY 1' USING timet_begin,timet_end,sample_sec;
     ELSE
-        RETURN QUERY EXECUTE 'SELECT min(timet), max(value) FROM (SELECT (unnest(records)).* FROM wh_nagios.counters_detail_'||id_label||' where date_records >= $1 - ''1 day''::interval and date_records <= $2) as tmp WHERE timet >= $1 AND timet <= $2' USING timet_begin,timet_end;
+        RETURN QUERY EXECUTE 'SELECT min(timet), max(value) FROM (SELECT (unnest(records)).* FROM wh_nagios.counters_detail_'||id_label||' where date_records >= $1 - ''1 day''::interval and date_records <= $2) as tmp WHERE timet >= $1 AND timet <= $2 ORDER BY 1' USING timet_begin,timet_end;
     END IF;
 END;
 $$;
