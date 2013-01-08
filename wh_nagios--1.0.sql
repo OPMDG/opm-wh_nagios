@@ -4,6 +4,7 @@
 SET statement_timeout TO 0;
 
 ALTER SCHEMA wh_nagios OWNER TO pgfactory;
+GRANT USAGE ON SCHEMA wh_nagios TO pgfactory;
 
 CREATE TYPE wh_nagios.counters_detail AS (
     timet timestamp with time zone,
