@@ -67,6 +67,110 @@ SELECT pg_catalog.pg_extension_config_dump('wh_nagios.services', '');
 SELECT pg_catalog.pg_extension_config_dump('wh_nagios.labels', '');
 SELECT pg_catalog.pg_extension_config_dump('wh_nagios.labels_id_seq', '');
 
+/*
+public.grant_service(service, role)
+
+@return rc: status
+ */
+CREATE OR REPLACE FUNCTION wh_nagios.grant_service(IN p_service_id bigint, IN p_rolname name, OUT rc boolean)
+AS $$
+DECLARE
+        v_state      text;
+        v_msg        text;
+        v_detail     text;
+        v_hint       text;
+        v_context    text;
+        v_whname     text;
+        v_label_id    bigint;
+BEGIN
+    FOR v_label_id IN (SELECT id_label FROM wh_nagios.list_label(p_service_id))
+    LOOP
+        EXECUTE format('GRANT SELECT ON wh_nagios.counters_detail_%s TO %I', v_label_id, p_rolname);
+    END LOOP;
+    rc := true;
+EXCEPTION
+    WHEN OTHERS THEN
+        GET STACKED DIAGNOSTICS
+            v_state   = RETURNED_SQLSTATE,
+            v_msg     = MESSAGE_TEXT,
+            v_detail  = PG_EXCEPTION_DETAIL,
+            v_hint    = PG_EXCEPTION_HINT,
+            v_context = PG_EXCEPTION_CONTEXT;
+        raise notice E'Unhandled error:
+            state  : %
+            message: %
+            detail : %
+            hint   : %
+            context: %', v_state, v_msg, v_detail, v_hint, v_context;
+        rc := false;
+END;
+$$
+LANGUAGE plpgsql
+VOLATILE
+LEAKPROOF
+SECURITY DEFINER;
+
+ALTER FUNCTION wh_nagios.grant_service(IN p_service_id bigint, IN p_rolname name, OUT rc boolean) OWNER TO pgfactory;
+REVOKE ALL ON FUNCTION wh_nagios.grant_service(IN p_service_id bigint, IN p_rolname name, OUT rc boolean) FROM public;
+GRANT ALL ON FUNCTION wh_nagios.grant_service(IN p_service_id bigint, IN p_rolname name, OUT rc boolean) TO pgf_admins;
+
+COMMENT ON FUNCTION wh_nagios.grant_service(IN p_service_id bigint, IN p_rolname name, OUT rc boolean) IS 'Grant SELECT on a service.';
+
+/*
+public.revoke_service(service, role)
+
+@return rc: status
+ */
+CREATE OR REPLACE FUNCTION wh_nagios.revoke_service(IN p_service_id bigint, IN p_rolname name, OUT rc boolean)
+AS $$
+DECLARE
+        v_state      text;
+        v_msg        text;
+        v_detail     text;
+        v_hint       text;
+        v_context    text;
+        v_whname     text;
+        v_label_id    bigint;
+BEGIN
+    FOR v_label_id IN (SELECT id_label FROM wh_nagios.list_label(p_service_id))
+    LOOP
+        EXECUTE format('REVOKE SELECT ON wh_nagios.counters_detail_%s TO %I', v_label_id, p_rolname);
+    END LOOP;
+    rc := true;
+EXCEPTION
+    WHEN OTHERS THEN
+        GET STACKED DIAGNOSTICS
+            v_state   = RETURNED_SQLSTATE,
+            v_msg     = MESSAGE_TEXT,
+            v_detail  = PG_EXCEPTION_DETAIL,
+            v_hint    = PG_EXCEPTION_HINT,
+            v_context = PG_EXCEPTION_CONTEXT;
+        raise notice E'Unhandled error:
+            state  : %
+            message: %
+            detail : %
+            hint   : %
+            context: %', v_state, v_msg, v_detail, v_hint, v_context;
+        rc := false;
+END;
+$$
+LANGUAGE plpgsql
+VOLATILE
+LEAKPROOF
+SECURITY DEFINER;
+
+ALTER FUNCTION wh_nagios.revoke_service(IN p_service_id bigint, IN p_rolname name, OUT rc boolean) OWNER TO pgfactory;
+REVOKE ALL ON FUNCTION wh_nagios.revoke_service(IN p_service_id bigint, IN p_rolname name, OUT rc boolean) FROM public;
+GRANT ALL ON FUNCTION wh_nagios.revoke_service(IN p_service_id bigint, IN p_rolname name, OUT rc boolean) TO pgf_admins;
+
+COMMENT ON FUNCTION wh_nagios.revoke_service(IN p_service_id bigint, IN p_rolname name, OUT rc boolean) IS 'Revoke SELECT on a service.';
+
+/* wh_nagios.list_label(bigint)
+Return every id and label for a service
+
+@service_id: service wanted
+@return : id and label for labels
+*/
 CREATE OR REPLACE FUNCTION wh_nagios.list_label(p_service_id bigint) RETURNS TABLE (id_label bigint, label text)
 AS $$
 DECLARE
@@ -74,7 +178,9 @@ BEGIN
     IF pg_has_role(session_user, 'pgf_admins', 'MEMBER') THEN
         RETURN QUERY SELECT l.id, l.label
             FROM wh_nagios.labels l
-            WHERE l.id = p_service_id;
+            JOIN wh_nagios.services s
+                ON s.id = l.id_service
+            WHERE s.id = p_service_id;
     ELSE
         RETURN QUERY EXECUTE format('WITH RECURSIVE
                 v_roles AS (
@@ -93,7 +199,7 @@ BEGIN
                     SELECT l.id, l.label, (aclexplode(seracl)).*
                     FROM wh_nagios.services s
                     JOIN wh_nagios.labels l ON l.id_service = s.id
-                    WHERE l.id = %s
+                    WHERE s.id = %s
                     AND array_length(seracl, 1) IS NOT NULL
                 )
                 SELECT id, label
@@ -121,7 +227,6 @@ $ID is found in wh_nagios.services_label and wh_nagios.services, with correct ho
 @return : true if everything went well.
 */
 CREATE OR REPLACE FUNCTION wh_nagios.dispatch_record(log_error boolean DEFAULT false, OUT processed bigint, OUT failed bigint)
-    LANGUAGE plpgsql
     AS $$
 DECLARE
     --Select current lines and lock them so then can be deleted
@@ -168,7 +273,7 @@ TODO: Handle seracl
 
                         IF NOT FOUND THEN
                             msg_err := 'Error during INSERT OR UPDATE on wh_nagios.services: %L - %L';
-
+raise notice '>>>insert';
                             INSERT INTO wh_nagios.services (id,hostname,warehouse,service,seracl,unit,state,min,max,critical,warning)
                             VALUES (default,cur->'hostname','wh_nagios',cur->'servicedesc','{}'::aclitem[],cur->'uom',cur->'servicestate',(cur->'min')::numeric,(cur->'max')::numeric,(cur->'critical')::numeric,(cur->'warning')::numeric)
                             RETURNING id INTO STRICT v_service_id;
@@ -303,9 +408,17 @@ TODO: Handle seracl
     END;
     RETURN;
 END;
-$$;
+$$
+LANGUAGE plpgsql
+VOLATILE
+LEAKPROOF;
 
-ALTER FUNCTION wh_nagios.dispatch_record(boolean) OWNER TO pgfactory;
+ALTER FUNCTION wh_nagios.dispatch_record(boolean)
+    OWNER TO pgfactory;
+REVOKE ALL ON FUNCTION wh_nagios.dispatch_record(boolean)
+    FROM public;
+GRANT EXECUTE ON FUNCTION wh_nagios.dispatch_record(boolean)
+    TO pgf_admins;
 
 /* wh_nagios.cleanup_partition(bigint,timestamptz)
 Aggregate all data by day in an array, to avoid space overhead. It also delete consecutive rows with same value between the two bounds.
@@ -314,8 +427,8 @@ Aggregate all data by day in an array, to avoid space overhead. It also delete c
 @p_max_timestamp: Use to specify which rows to analyze for deleting. Will happen between last_cleanup and this parameter.
 @return : true if everything went well.
 */
-CREATE OR REPLACE FUNCTION cleanup_partition(p_partid bigint, p_max_timestamp timestamp with time zone) RETURNS boolean
-    LANGUAGE plpgsql
+CREATE OR REPLACE FUNCTION cleanup_partition(p_partid bigint, p_max_timestamp timestamp with time zone)
+    RETURNS boolean
     AS $$
 DECLARE
   c_tmp refcursor;
@@ -375,12 +488,20 @@ BEGIN
         WHERE id = p_partid;
     RETURN true;
 END;
-$$;
+$$
+LANGUAGE plpgsql
+VOLATILE
+LEAKPROOF;
 
-ALTER FUNCTION wh_nagios.cleanup_partition(bigint, timestamp with time zone) OWNER TO pgfactory;
+ALTER FUNCTION wh_nagios.cleanup_partition(bigint, timestamp with time zone)
+    OWNER TO pgfactory;
+REVOKE ALL ON FUNCTION wh_nagios.cleanup_partition(bigint, timestamp with time zone)
+    FROM public;
+GRANT EXECUTE ON FUNCTION wh_nagios.cleanup_partition(bigint, timestamp with time zone)
+    TO pgf_admins;
 
-CREATE FUNCTION wh_nagios.get_sampled_service_data(id_label bigint, timet_begin timestamp with time zone, timet_end timestamp with time zone, sample_sec integer) RETURNS TABLE(timet timestamp with time zone, value numeric)
-    LANGUAGE plpgsql
+CREATE FUNCTION wh_nagios.get_sampled_service_data(id_label bigint, timet_begin timestamp with time zone, timet_end timestamp with time zone, sample_sec integer)
+    RETURNS TABLE(timet timestamp with time zone, value numeric)
     AS $$
 BEGIN
     IF (sample_sec > 0) THEN
@@ -389,11 +510,20 @@ BEGIN
         RETURN QUERY EXECUTE 'SELECT min(timet), max(value) FROM (SELECT (unnest(records)).* FROM wh_nagios.counters_detail_'||id_label||' where date_records >= $1 - ''1 day''::interval and date_records <= $2) as tmp WHERE timet >= $1 AND timet <= $2 ORDER BY 1' USING timet_begin,timet_end;
     END IF;
 END;
-$$;
-ALTER FUNCTION wh_nagios.get_sampled_service_data(id_service bigint, timet_begin timestamp with time zone, timet_end timestamp with time zone, sample_sec integer) OWNER TO pgfactory;
+$$
+LANGUAGE plpgsql
+VOLATILE
+LEAKPROOF;
 
-CREATE FUNCTION wh_nagios.get_sampled_service_data(i_hostname text, i_service text, i_label text, timet_begin timestamp with time zone, timet_end timestamp with time zone, sample_sec integer) RETURNS TABLE(timet timestamp with time zone, value numeric)
-    LANGUAGE plpgsql
+ALTER FUNCTION wh_nagios.get_sampled_service_data(bigint, timestamp with time zone, timestamp with time zone, integer)
+    OWNER TO pgfactory;
+REVOKE ALL ON FUNCTION wh_nagios.get_sampled_service_data(bigint, timestamp with time zone, timestamp with time zone, integer)
+    FROM public;
+GRANT EXECUTE ON FUNCTION wh_nagios.get_sampled_service_data(bigint, timestamp with time zone, timestamp with time zone, integer)
+    TO pgf_roles;
+
+CREATE FUNCTION wh_nagios.get_sampled_service_data(i_hostname text, i_service text, i_label text, timet_begin timestamp with time zone, timet_end timestamp with time zone, sample_sec integer)
+    RETURNS TABLE(timet timestamp with time zone, value numeric)
     AS $$
 DECLARE
     v_id_label bigint;
@@ -408,9 +538,17 @@ BEGIN
         RETURN QUERY SELECT * FROM wh_nagios.get_sampled_service_data(v_id_label,timet_begin,timet_end,sample_sec);
     END IF;
 END;
-$$;
-ALTER FUNCTION wh_nagios.get_sampled_service_data(i_hostname text, i_service text, i_label text, timet_begin timestamp with time zone, timet_end timestamp with time zone, sample_sec integer) OWNER TO pgfactory;
+$$
+LANGUAGE plpgsql
+VOLATILE
+LEAKPROOF;
 
+ALTER FUNCTION wh_nagios.get_sampled_service_data(text, text, text, timestamp with time zone, timestamp with time zone, integer)
+    OWNER TO pgfactory;
+REVOKE ALL ON FUNCTION wh_nagios.get_sampled_service_data(text, text, text, timestamp with time zone, timestamp with time zone, integer)
+    FROM public;
+GRANT EXECUTE ON FUNCTION wh_nagios.get_sampled_service_data(text, text, text, timestamp with time zone, timestamp with time zone, integer)
+    TO pgf_roles;
 
 
 /*
@@ -519,7 +657,7 @@ EXCEPTION
             v_detail  = PG_EXCEPTION_DETAIL,
             v_hint    = PG_EXCEPTION_HINT,
             v_context = PG_EXCEPTION_CONTEXT;
-        raise WARNING 'Could not grant dispatch to ''%'' on wh_nagios:
+        raise WARNING 'Could not revoke dispatch to ''%'' on wh_nagios:
             state  : %
             message: %
             detail : %
@@ -546,25 +684,35 @@ COMMENT ON FUNCTION wh_nagios.revoke_dispatcher(IN name, OUT boolean)
 CREATE OR REPLACE FUNCTION wh_nagios.create_partition_on_insert_label() RETURNS trigger
     LANGUAGE plpgsql
     AS $$
+DECLARE
+    v_rolname name;
 BEGIN
-    EXECUTE 'CREATE TABLE wh_nagios.counters_detail_' || NEW.id || ' (date_records date, records wh_nagios.counters_detail[])';
-    EXECUTE 'ALTER TABLE wh_nagios.counters_detail_' || NEW.id || ' OWNER TO pgfactory;';
+    EXECUTE format('CREATE TABLE wh_nagios.counters_detail_%s (date_records date, records wh_nagios.counters_detail[])', NEW.id);
+    EXECUTE format('ALTER TABLE wh_nagios.counters_detail_%s OWNER TO pgfactory;', NEW.id);
+    EXECUTE format('REVOKE ALL ON TABLE wh_nagios.counters_detail_%s FROM public;', NEW.id);
+    
+    FOR v_rolname IN (SELECT r.rolname FROM (SELECT (aclexplode(seracl)).grantee FROM public.services WHERE array_length(seracl, 1) IS NOT NULL) s JOIN pg_catalog.pg_roles r ON s.grantee = r.oid)
+    LOOP
+        EXECUTE format('GRANT SELECT ON TABLE wh_nagios.counters_detail_%s TO %I;', NEW.id, v_rolname);
+    END LOOP;
     RETURN NEW;
 EXCEPTION
     WHEN duplicate_table THEN
-        EXECUTE 'TRUNCATE TABLE wh_nagios.counters_detail_' || NEW.id;
+        EXECUTE format('TRUNCATE TABLE wh_nagios.counters_detail_%s', NEW.id);
         RETURN NEW;
 END;
 $$;
 
 ALTER FUNCTION wh_nagios.create_partition_on_insert_label() OWNER TO pgfactory;
+REVOKE ALL ON FUNCTION wh_nagios.create_partition_on_insert_label() FROM public;
+GRANT ALL ON FUNCTION wh_nagios.create_partition_on_insert_label() TO pgf_admins;
 
 --Automatically delete a partition when a service is removed.
 CREATE OR REPLACE FUNCTION wh_nagios.drop_partition_on_delete_label() RETURNS trigger
     LANGUAGE plpgsql
     AS $$
 BEGIN
-    EXECUTE 'DROP TABLE wh_nagios.counters_detail_' || OLD.id;
+    EXECUTE format('DROP TABLE wh_nagios.counters_detail_%s', OLD.id);
     RETURN NULL;
 EXCEPTION
     WHEN undefined_table THEN
@@ -573,6 +721,14 @@ END;
 $$;
 
 ALTER FUNCTION wh_nagios.drop_partition_on_delete_label() OWNER TO pgfactory;
+REVOKE ALL ON FUNCTION wh_nagios.drop_partition_on_delete_label() FROM public;
+GRANT ALL ON FUNCTION wh_nagios.drop_partition_on_delete_label() TO pgf_admins;
 
-CREATE TRIGGER create_partition_on_insert_service BEFORE INSERT ON wh_nagios.labels FOR EACH ROW EXECUTE PROCEDURE wh_nagios.create_partition_on_insert_label();
-CREATE TRIGGER drop_partition_on_delete_service AFTER DELETE ON wh_nagios.labels FOR EACH ROW EXECUTE PROCEDURE wh_nagios.drop_partition_on_delete_label();
+CREATE TRIGGER create_partition_on_insert_service
+    BEFORE INSERT ON wh_nagios.labels
+    FOR EACH ROW
+    EXECUTE PROCEDURE wh_nagios.create_partition_on_insert_label();
+CREATE TRIGGER drop_partition_on_delete_service
+    AFTER DELETE ON wh_nagios.labels
+    FOR EACH ROW
+    EXECUTE PROCEDURE wh_nagios.drop_partition_on_delete_label();
