@@ -273,7 +273,7 @@ TODO: Handle seracl
 
                         IF NOT FOUND THEN
                             msg_err := 'Error during INSERT OR UPDATE on wh_nagios.services: %L - %L';
-raise notice '>>>insert';
+
                             INSERT INTO wh_nagios.services (id,hostname,warehouse,service,seracl,unit,state,min,max,critical,warning)
                             VALUES (default,cur->'hostname','wh_nagios',cur->'servicedesc','{}'::aclitem[],cur->'uom',cur->'servicestate',(cur->'min')::numeric,(cur->'max')::numeric,(cur->'critical')::numeric,(cur->'warning')::numeric)
                             RETURNING id INTO STRICT v_service_id;
