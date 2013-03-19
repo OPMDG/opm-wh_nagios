@@ -500,7 +500,7 @@ REVOKE ALL ON FUNCTION wh_nagios.cleanup_partition(bigint, timestamp with time z
 GRANT EXECUTE ON FUNCTION wh_nagios.cleanup_partition(bigint, timestamp with time zone)
     TO pgf_admins;
 
-CREATE FUNCTION wh_nagios.get_sampled_service_data(id_label bigint, timet_begin timestamp with time zone, timet_end timestamp with time zone, sample_sec integer)
+CREATE FUNCTION wh_nagios.get_sampled_label_data(id_label bigint, timet_begin timestamp with time zone, timet_end timestamp with time zone, sample_sec integer)
     RETURNS TABLE(timet timestamp with time zone, value numeric)
     AS $$
 BEGIN
@@ -515,14 +515,14 @@ LANGUAGE plpgsql
 VOLATILE
 LEAKPROOF;
 
-ALTER FUNCTION wh_nagios.get_sampled_service_data(bigint, timestamp with time zone, timestamp with time zone, integer)
+ALTER FUNCTION wh_nagios.get_sampled_label_data(bigint, timestamp with time zone, timestamp with time zone, integer)
     OWNER TO pgfactory;
-REVOKE ALL ON FUNCTION wh_nagios.get_sampled_service_data(bigint, timestamp with time zone, timestamp with time zone, integer)
+REVOKE ALL ON FUNCTION wh_nagios.get_sampled_label_data(bigint, timestamp with time zone, timestamp with time zone, integer)
     FROM public;
-GRANT EXECUTE ON FUNCTION wh_nagios.get_sampled_service_data(bigint, timestamp with time zone, timestamp with time zone, integer)
+GRANT EXECUTE ON FUNCTION wh_nagios.get_sampled_label_data(bigint, timestamp with time zone, timestamp with time zone, integer)
     TO pgf_roles;
 
-CREATE FUNCTION wh_nagios.get_sampled_service_data(i_hostname text, i_service text, i_label text, timet_begin timestamp with time zone, timet_end timestamp with time zone, sample_sec integer)
+CREATE FUNCTION wh_nagios.get_sampled_label_data(i_hostname text, i_service text, i_label text, timet_begin timestamp with time zone, timet_end timestamp with time zone, sample_sec integer)
     RETURNS TABLE(timet timestamp with time zone, value numeric)
     AS $$
 DECLARE
@@ -535,7 +535,7 @@ BEGIN
     IF NOT FOUND THEN
         RETURN;
     ELSE
-        RETURN QUERY SELECT * FROM wh_nagios.get_sampled_service_data(v_id_label,timet_begin,timet_end,sample_sec);
+        RETURN QUERY SELECT * FROM wh_nagios.get_sampled_label_data(v_id_label,timet_begin,timet_end,sample_sec);
     END IF;
 END;
 $$
@@ -543,11 +543,11 @@ LANGUAGE plpgsql
 VOLATILE
 LEAKPROOF;
 
-ALTER FUNCTION wh_nagios.get_sampled_service_data(text, text, text, timestamp with time zone, timestamp with time zone, integer)
+ALTER FUNCTION wh_nagios.get_sampled_label_data(text, text, text, timestamp with time zone, timestamp with time zone, integer)
     OWNER TO pgfactory;
-REVOKE ALL ON FUNCTION wh_nagios.get_sampled_service_data(text, text, text, timestamp with time zone, timestamp with time zone, integer)
+REVOKE ALL ON FUNCTION wh_nagios.get_sampled_label_data(text, text, text, timestamp with time zone, timestamp with time zone, integer)
     FROM public;
-GRANT EXECUTE ON FUNCTION wh_nagios.get_sampled_service_data(text, text, text, timestamp with time zone, timestamp with time zone, integer)
+GRANT EXECUTE ON FUNCTION wh_nagios.get_sampled_label_data(text, text, text, timestamp with time zone, timestamp with time zone, integer)
     TO pgf_roles;
 
 
