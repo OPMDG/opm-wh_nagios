@@ -41,8 +41,8 @@ INHERITS (public.services);
 
 ALTER TABLE wh_nagios.services OWNER TO pgfactory;
 ALTER TABLE wh_nagios.services ADD PRIMARY KEY (id);
-CREATE UNIQUE INDEX idx_wh_nagios_services_hostname
-    ON wh_nagios.services USING btree (hostname, service);
+CREATE UNIQUE INDEX idx_wh_nagios_services_service
+    ON wh_nagios.services USING btree (service);
 REVOKE ALL ON TABLE wh_nagios.services FROM public ;
 
 CREATE TABLE wh_nagios.labels (
@@ -134,7 +134,7 @@ DECLARE
 BEGIN
     FOR v_label_id IN (SELECT id_label FROM wh_nagios.list_label(p_service_id))
     LOOP
-        EXECUTE format('REVOKE SELECT ON wh_nagios.counters_detail_%s TO %I', v_label_id, p_rolname);
+        EXECUTE format('REVOKE SELECT ON wh_nagios.counters_detail_%s FROM %I', v_label_id, p_rolname);
     END LOOP;
     rc := true;
 EXCEPTION
@@ -239,6 +239,7 @@ DECLARE
     cur hstore;
     msg_err text;
     servicesrow wh_nagios.services%ROWTYPE;
+    serversrow public.servers%ROWTYPE;
 BEGIN
 /*
 TODO: Handle seracl 
@@ -261,21 +262,32 @@ TODO: Handle seracl
                         cur := cur || hstore(lower(r_hub.data[i]),r_hub.data[i+1]);
                     END IF;
                 END LOOP;
+                serversrow := NULL;
                 servicesrow := NULL;
                 --Do we have all informations needed ?
                 IF ( ((cur->'hostname') IS NOT NULL) AND ((cur->'servicedesc') IS NOT NULL) AND ((cur->'label') IS NOT NULL) AND ((cur->'timet') IS NOT NULL) AND ((cur->'value') IS NOT NULL) ) THEN
-                    BEGIN
+                BEGIN
+                    --Does the server exists ?
+                    SELECT * INTO serversrow
+                    FROM public.servers
+                    WHERE hostname = (cur->'hostname');
+
+                    IF NOT FOUND THEN
+                        msg_err := 'Error during INSERT OR UPDATE on public.servers: %L - %L';
+                        EXECUTE format('INSERT INTO public.servers(hostname) VALUES (%L)', (cur->'hostname'));
+                    ELSE
                         --Does the service exists ?
-                        SELECT * INTO servicesrow
-                        FROM wh_nagios.services
+                        SELECT s2.* INTO servicesrow
+                        FROM public.servers s1
+                        JOIN wh_nagios.services s2 ON s1.id = s2.id_server
                         WHERE hostname = (cur->'hostname')
                             AND service = (cur->'servicedesc');
 
                         IF NOT FOUND THEN
                             msg_err := 'Error during INSERT OR UPDATE on wh_nagios.services: %L - %L';
 
-                            INSERT INTO wh_nagios.services (id,hostname,warehouse,service,seracl,unit,state,min,max,critical,warning)
-                            VALUES (default,cur->'hostname','wh_nagios',cur->'servicedesc','{}'::aclitem[],cur->'uom',cur->'servicestate',(cur->'min')::numeric,(cur->'max')::numeric,(cur->'critical')::numeric,(cur->'warning')::numeric)
+                            INSERT INTO wh_nagios.services (id,id_server,warehouse,service,unit,state,min,max,critical,warning)
+                            VALUES (default,serversrow.id,'wh_nagios',cur->'servicedesc',cur->'uom',cur->'servicestate',(cur->'min')::numeric,(cur->'max')::numeric,(cur->'critical')::numeric,(cur->'warning')::numeric)
                             RETURNING id INTO STRICT v_service_id;
                             EXECUTE format('UPDATE wh_nagios.services SET oldest_record = timestamp with time zone ''epoch''+%L * INTERVAL ''1 second''',(cur->'timet'));
                         ELSE
@@ -346,15 +358,16 @@ TODO: Handle seracl
 
                         -- one line has been processed with success !
                         processed := processed  + 1;
-                    EXCEPTION
-                        WHEN OTHERS THEN
-                            IF (log_error = TRUE) THEN
-                                INSERT INTO wh_nagios.hub_reject (id, data,msg) VALUES (r_hub.id, r_hub.data, format(msg_err, SQLSTATE, SQLERRM));
-                            END IF;
+                    END IF;
+                EXCEPTION
+                    WHEN OTHERS THEN
+                        IF (log_error = TRUE) THEN
+                            INSERT INTO wh_nagios.hub_reject (id, data,msg) VALUES (r_hub.id, r_hub.data, format(msg_err, SQLSTATE, SQLERRM));
+                        END IF;
 
-                            -- We faile on the way for this one
-                            failed := failed + 1;
-                    END;
+                        -- We faile on the way for this one
+                        failed := failed + 1;
+                END;
                 ELSE
                     IF (log_error = TRUE) THEN
                         msg_err := NULL;
@@ -691,10 +704,10 @@ BEGIN
     EXECUTE format('ALTER TABLE wh_nagios.counters_detail_%s OWNER TO pgfactory;', NEW.id);
     EXECUTE format('REVOKE ALL ON TABLE wh_nagios.counters_detail_%s FROM public;', NEW.id);
     
-    FOR v_rolname IN (SELECT r.rolname FROM (SELECT (aclexplode(seracl)).grantee FROM public.services WHERE array_length(seracl, 1) IS NOT NULL) s JOIN pg_catalog.pg_roles r ON s.grantee = r.oid)
-    LOOP
+    SELECT rolname INTO v_rolname FROM public.list_servers() s1 JOIN wh_nagios.services s2 ON s2.id_server = s1.id WHERE s2.id = NEW.id_service ;
+    IF ( v_rolname IS NOT NULL) THEN
         EXECUTE format('GRANT SELECT ON TABLE wh_nagios.counters_detail_%s TO %I;', NEW.id, v_rolname);
-    END LOOP;
+    END IF;
     RETURN NEW;
 EXCEPTION
     WHEN duplicate_table THEN
