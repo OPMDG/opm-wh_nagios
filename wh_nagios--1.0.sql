@@ -41,8 +41,8 @@ INHERITS (public.services);
 
 ALTER TABLE wh_nagios.services OWNER TO pgfactory;
 ALTER TABLE wh_nagios.services ADD PRIMARY KEY (id);
-CREATE UNIQUE INDEX idx_wh_nagios_services_service
-    ON wh_nagios.services USING btree (service);
+CREATE UNIQUE INDEX idx_wh_nagios_services_id_server_service
+    ON wh_nagios.services USING btree (id_server,service);
 REVOKE ALL ON TABLE wh_nagios.services FROM public ;
 
 CREATE TABLE wh_nagios.labels (
