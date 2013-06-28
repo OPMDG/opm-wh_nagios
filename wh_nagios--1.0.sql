@@ -182,31 +182,11 @@ BEGIN
                 ON s.id = l.id_service
             WHERE s.id = p_service_id;
     ELSE
-        RETURN QUERY EXECUTE format('WITH RECURSIVE
-                v_roles AS (
-                    SELECT pr.oid AS oid, r.rolname, ARRAY[r.rolname] AS roles
-                      FROM public.roles r
-                      JOIN pg_catalog.pg_roles pr ON (r.rolname = pr.rolname)
-                     WHERE r.rolname = %L
-                    UNION ALL
-                    SELECT pa.oid, v.rolname, v.roles|| pa.rolname
-                      FROM v_roles v
-                      JOIN pg_auth_members am ON (am.member = v.oid)
-                      JOIN pg_roles pa ON (am.roleid = pa.oid)
-                     WHERE NOT pa.rolname::name = ANY(v.roles)
-                ),
-                acl AS (
-                    SELECT l.id, l.label, (aclexplode(seracl)).*
-                    FROM wh_nagios.services s
-                    JOIN wh_nagios.labels l ON l.id_service = s.id
-                    WHERE s.id = %s
-                    AND array_length(seracl, 1) IS NOT NULL
-                )
-                SELECT id, label
-                FROM acl
-                WHERE grantee IN (SELECT oid FROM v_roles) AND privilege_type = %L',
-            session_user,p_service_id,'SELECT'
-        );
+        RETURN QUERY SELECT l.id, l.label
+            FROM list_services() s
+            JOIN wh_nagios.labels l ON s.id = l.id_service
+            WHERE s.id = p_service_id
+        ;
         END IF;
 END;
 $$
