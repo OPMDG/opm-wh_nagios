@@ -198,6 +198,28 @@ ALTER FUNCTION wh_nagios.list_label(bigint) OWNER TO pgfactory;
 REVOKE ALL ON FUNCTION wh_nagios.list_label(bigint) FROM public;
 GRANT EXECUTE ON FUNCTION wh_nagios.list_label(bigint) TO pgf_roles;
 
+/* wh_nagios.list_services()
+Return every wh_nagios.services%ROWTYPE
+
+@return : wh_nagios.services%ROWTYPE
+*/
+CREATE OR REPLACE FUNCTION wh_nagios.list_services() RETURNS wh_nagios.services
+AS $$
+DECLARE
+BEGIN
+    RETURN QUERY SELECT s2.*
+        FROM public.list_servers() s1
+        JOIN wh_nagios.services s2 ON s1.id = s2.id_server;
+END;
+$$
+LANGUAGE plpgsql
+VOLATILE
+LEAKPROOF
+SECURITY DEFINER;
+ALTER FUNCTION wh_nagios.list_services() OWNER TO pgfactory;
+REVOKE ALL ON FUNCTION wh_nagios.services() FROM public;
+GRANT EXECUTE ON FUNCTION wh_nagios.services() TO pgf_roles;
+
 /* wh_nagios.dispatch_record(boolean)
 Dispatch records from wh_nagios.hub into counters_detail_$ID
 
