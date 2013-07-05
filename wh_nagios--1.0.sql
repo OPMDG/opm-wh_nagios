@@ -203,7 +203,7 @@ Return every wh_nagios.services%ROWTYPE
 
 @return : wh_nagios.services%ROWTYPE
 */
-CREATE OR REPLACE FUNCTION wh_nagios.list_services() RETURNS wh_nagios.services
+CREATE OR REPLACE FUNCTION wh_nagios.list_services() RETURNS SETOF wh_nagios.services
 AS $$
 DECLARE
 BEGIN
@@ -217,8 +217,8 @@ VOLATILE
 LEAKPROOF
 SECURITY DEFINER;
 ALTER FUNCTION wh_nagios.list_services() OWNER TO pgfactory;
-REVOKE ALL ON FUNCTION wh_nagios.services() FROM public;
-GRANT EXECUTE ON FUNCTION wh_nagios.services() TO pgf_roles;
+REVOKE ALL ON FUNCTION wh_nagios.list_services() FROM public;
+GRANT EXECUTE ON FUNCTION wh_nagios.list_services() TO pgf_roles;
 
 /* wh_nagios.dispatch_record(boolean)
 Dispatch records from wh_nagios.hub into counters_detail_$ID
