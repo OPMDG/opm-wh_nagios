@@ -235,8 +235,8 @@ DECLARE
     --Use NOWAIT so there can't be two concurrent processes
     c_hub CURSOR FOR SELECT * FROM wh_nagios.hub FOR UPDATE NOWAIT;
     r_hub record;
-    v_service_id bigint;
     v_service_label_id bigint;
+    v_label_tmp bigint;
     i integer;
     cur hstore;
     msg_err text;
@@ -276,91 +276,89 @@ TODO: Handle seracl
 
                     IF NOT FOUND THEN
                         msg_err := 'Error during INSERT OR UPDATE on public.servers: %L - %L';
-                        EXECUTE format('INSERT INTO public.servers(hostname) VALUES (%L)', (cur->'hostname'));
-                    ELSE
-                        --Does the service exists ?
-                        SELECT s2.* INTO servicesrow
-                        FROM public.servers s1
-                        JOIN wh_nagios.services s2 ON s1.id = s2.id_server
-                        WHERE hostname = (cur->'hostname')
-                            AND service = (cur->'servicedesc');
+                        EXECUTE format('INSERT INTO public.servers(hostname) VALUES (%L) RETURNING *', (cur->'hostname')) INTO STRICT serversrow;                    END IF;
+                    --Does the service exists ?
+                    SELECT s2.* INTO servicesrow
+                    FROM public.servers s1
+                    JOIN wh_nagios.services s2 ON s1.id = s2.id_server
+                    WHERE hostname = (cur->'hostname')
+                        AND service = (cur->'servicedesc');
 
-                        IF NOT FOUND THEN
-                            msg_err := 'Error during INSERT OR UPDATE on wh_nagios.services: %L - %L';
+                    IF NOT FOUND THEN
+                        msg_err := 'Error during INSERT OR UPDATE on wh_nagios.services: %L - %L';
 
-                            INSERT INTO wh_nagios.services (id,id_server,warehouse,service,unit,state,min,max,critical,warning)
-                            VALUES (default,serversrow.id,'wh_nagios',cur->'servicedesc',cur->'uom',cur->'servicestate',(cur->'min')::numeric,(cur->'max')::numeric,(cur->'critical')::numeric,(cur->'warning')::numeric)
-                            RETURNING id INTO STRICT v_service_id;
-                            EXECUTE format('UPDATE wh_nagios.services SET oldest_record = timestamp with time zone ''epoch''+%L * INTERVAL ''1 second''',(cur->'timet'));
-                        ELSE
-                            --Do we need to update the service ?
-                            IF ( (servicesrow.last_modified + '1 day'::interval < CURRENT_DATE)
-                                OR ( (cur->'servicestate') IS NOT NULL AND (servicesrow.state <> (cur->'servicestate') OR servicesrow.state IS NULL) )
-                                OR ( (cur->'min') IS NOT NULL AND (servicesrow.min <> (cur->'min')::numeric OR (servicesrow.min IS NULL)) ) 
-                                OR ( (cur->'max') IS NOT NULL AND (servicesrow.max <> (cur->'max')::numeric OR (servicesrow.max IS NULL)) )
-                                OR ( (cur->'warning') IS NOT NULL AND (servicesrow.warning <> (cur->'warning')::numeric OR (servicesrow.warning IS NULL)) )
-                                OR ( (cur->'critical') IS NOT NULL AND (servicesrow.critical <> (cur->'critical')::numeric OR (servicesrow.critical IS NULL)) )
-                                OR ( (cur->'unit') IS NOT NULL AND (servicesrow.unit <> (cur->'unit') OR (servicesrow.unit IS NULL)) )
-                                OR (servicesrow.newest_record +'5 minutes'::interval < now() )
-                            ) THEN
-                                msg_err := 'Error during UPDATE on wh_nagios.services: %L - %L';
-
-                                EXECUTE format('UPDATE wh_nagios.services SET last_modified = CURRENT_DATE,
-                                        state = %L,
-                                        min = %L,
-                                        max = %L,
-                                        warning = %L,
-                                        critical = %L,
-                                        unit = %L,
-                                        newest_record= timestamp with time zone ''epoch'' +%L * INTERVAL ''1 second''
-                                    WHERE id = %s',
-                                    cur->'servicestate',
-                                    cur->'min',
-                                    cur->'max',
-                                    cur->'warning',
-                                    cur->'critical',
-                                    cur->'unit',
-                                    cur->'timet',
-                                    servicesrow.id);
-                            END IF;
-                            v_service_id := servicesrow.id;
-                        END IF;
-
-                        --Does the label exists ?
-                        SELECT id INTO v_service_label_id
-                            FROM wh_nagios.labels
-                            WHERE id_service = v_service_id
-                            AND label = (cur->'label');
-
-                        IF NOT FOUND THEN
-                            msg_err := 'Error during INSERT on wh_nagios.labels: %L - %L';
-
-                            -- The trigger on wh_nagios.services_label will create the partition counters_detail_$service_id automatically
-                            INSERT INTO wh_nagios.labels (id_service,label)
-                                VALUES (v_service_id,(cur->'label')) RETURNING id INTO v_service_label_id;
-                        END IF;
-
-                        IF (servicesrow IS NOT NULL AND servicesrow.last_cleanup < now() - '10 days'::interval) THEN
-                            PERFORM wh_nagios.cleanup_partition(servicesrow.id,now()- '7 days'::interval);
-                        END IF;
-
-                        msg_err := format('Error during INSERT on counters_detail_%s: %%L - %%L', v_service_label_id);
-
-                        EXECUTE format(
-                            'INSERT INTO wh_nagios.counters_detail_%s (date_records,records)
-                            VALUES (
-                                date_trunc(''day'',timestamp with time zone ''epoch''+%L * INTERVAL ''1 second''),
-                                array[row(timestamp with time zone ''epoch''+%L * INTERVAL ''1 second'',%L )]::wh_nagios.counters_detail[]
-                            )',
-                            v_service_label_id,
-                            cur->'timet',
-                            cur->'timet',
-                            cur->'value'
-                        );
-
-                        -- one line has been processed with success !
-                        processed := processed  + 1;
+                        INSERT INTO wh_nagios.services (id,id_server,warehouse,service,unit,state,min,max,critical,warning)
+                        VALUES (default,serversrow.id,'wh_nagios',cur->'servicedesc',cur->'uom',cur->'servicestate',(cur->'min')::numeric,(cur->'max')::numeric,(cur->'critical')::numeric,(cur->'warning')::numeric)
+                        RETURNING * INTO STRICT servicesrow;
+                        EXECUTE format('UPDATE wh_nagios.services SET oldest_record = timestamp with time zone ''epoch''+%L * INTERVAL ''1 second''',(cur->'timet'));
                     END IF;
+                    --Do we need to update the service ?
+                    IF ( (servicesrow.last_modified + '1 day'::interval < CURRENT_DATE)
+                        OR ( (cur->'servicestate') IS NOT NULL AND (servicesrow.state <> (cur->'servicestate') OR servicesrow.state IS NULL) )
+                        OR ( (cur->'min') IS NOT NULL AND (servicesrow.min <> (cur->'min')::numeric OR (servicesrow.min IS NULL)) ) 
+                        OR ( (cur->'max') IS NOT NULL AND (servicesrow.max <> (cur->'max')::numeric OR (servicesrow.max IS NULL)) )
+                        OR ( (cur->'warning') IS NOT NULL AND (servicesrow.warning <> (cur->'warning')::numeric OR (servicesrow.warning IS NULL)) )
+                        OR ( (cur->'critical') IS NOT NULL AND (servicesrow.critical <> (cur->'critical')::numeric OR (servicesrow.critical IS NULL)) )
+                        OR ( (cur->'unit') IS NOT NULL AND (servicesrow.unit <> (cur->'unit') OR (servicesrow.unit IS NULL)) )
+                        OR (servicesrow.newest_record +'5 minutes'::interval < now() )
+                    ) THEN
+                        msg_err := 'Error during UPDATE on wh_nagios.services: %L - %L';
+
+                        EXECUTE format('UPDATE wh_nagios.services SET last_modified = CURRENT_DATE,
+                                state = %L,
+                                min = %L,
+                                max = %L,
+                                warning = %L,
+                                critical = %L,
+                                unit = %L,
+                                newest_record= timestamp with time zone ''epoch'' +%L * INTERVAL ''1 second''
+                            WHERE id = %s',
+                            cur->'servicestate',
+                            cur->'min',
+                            cur->'max',
+                            cur->'warning',
+                            cur->'critical',
+                            cur->'unit',
+                            cur->'timet',
+                            servicesrow.id);
+                    END IF;
+
+                    --Does the label exists ?
+                    SELECT id INTO v_service_label_id
+                        FROM wh_nagios.labels
+                        WHERE id_service = servicesrow.id
+                        AND label = (cur->'label');
+
+                    IF NOT FOUND THEN
+                        msg_err := 'Error during INSERT on wh_nagios.labels: %L - %L';
+
+                        -- The trigger on wh_nagios.services_label will create the partition counters_detail_$service_id automatically
+                        INSERT INTO wh_nagios.labels (id_service,label)
+                            VALUES (servicesrow.id,(cur->'label')) RETURNING id INTO v_service_label_id;
+                    END IF;
+
+                    IF (servicesrow IS NOT NULL AND servicesrow.last_cleanup < now() - '10 days'::interval) THEN
+                        FOR v_label_tmp IN SELECT id FROM wh_nagios.labels WHERE id_service = servicesrow.id LOOP
+                            PERFORM wh_nagios.cleanup_partition(v_label_tmp,now()- '7 days'::interval);
+                        END LOOP;
+                    END IF;
+
+                    msg_err := format('Error during INSERT on counters_detail_%s: %%L - %%L', v_service_label_id);
+
+                    EXECUTE format(
+                        'INSERT INTO wh_nagios.counters_detail_%s (date_records,records)
+                        VALUES (
+                            date_trunc(''day'',timestamp with time zone ''epoch''+%L * INTERVAL ''1 second''),
+                            array[row(timestamp with time zone ''epoch''+%L * INTERVAL ''1 second'',%L )]::wh_nagios.counters_detail[]
+                        )',
+                        v_service_label_id,
+                        cur->'timet',
+                        cur->'timet',
+                        cur->'value'
+                    );
+
+                    -- one line has been processed with success !
+                    processed := processed  + 1;
                 EXCEPTION
                     WHEN OTHERS THEN
                         IF (log_error = TRUE) THEN
