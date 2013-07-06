@@ -236,7 +236,6 @@ DECLARE
     c_hub CURSOR FOR SELECT * FROM wh_nagios.hub FOR UPDATE NOWAIT;
     r_hub record;
     v_service_label_id bigint;
-    v_label_tmp bigint;
     i integer;
     cur hstore;
     msg_err text;
@@ -338,9 +337,7 @@ TODO: Handle seracl
                     END IF;
 
                     IF (servicesrow IS NOT NULL AND servicesrow.last_cleanup < now() - '10 days'::interval) THEN
-                        FOR v_label_tmp IN SELECT id FROM wh_nagios.labels WHERE id_service = servicesrow.id LOOP
-                            PERFORM wh_nagios.cleanup_partition(v_label_tmp,now()- '7 days'::interval);
-                        END LOOP;
+                        PERFORM wh_nagios.cleanup_service(servicesrow.id,now()- '7 days'::interval);
                     END IF;
 
                     msg_err := format('Error during INSERT on counters_detail_%s: %%L - %%L', v_service_label_id);
@@ -433,19 +430,21 @@ REVOKE ALL ON FUNCTION wh_nagios.dispatch_record(boolean)
 GRANT EXECUTE ON FUNCTION wh_nagios.dispatch_record(boolean)
     TO pgf_admins;
 
-/* wh_nagios.cleanup_partition(bigint,timestamptz)
+/* wh_nagios.cleanup_service(bigint,timestamptz)
 Aggregate all data by day in an array, to avoid space overhead. It also delete consecutive rows with same value between the two bounds.
+This will be done for every label corresponding to the service.
 
-@p_partid: ID of partition to cleanup.
+@p_serviceid: ID of service to cleanup.
 @p_max_timestamp: Use to specify which rows to analyze for deleting. Will happen between last_cleanup and this parameter.
 @return : true if everything went well.
 */
-CREATE OR REPLACE FUNCTION cleanup_partition(p_partid bigint, p_max_timestamp timestamp with time zone)
+CREATE OR REPLACE FUNCTION cleanup_service(p_serviceid bigint, p_max_timestamp timestamp with time zone)
     RETURNS boolean
     AS $$
 DECLARE
   c_tmp refcursor;
   r_tmp record;
+  v_partid bigint;
   v_current_value numeric;
   v_start_range timestamptz;
   v_partname text;
@@ -456,49 +455,51 @@ DECLARE
   v_oldest timestamptz;
   v_newest timestamptz;
 BEGIN
-    SELECT last_cleanup INTO v_previous_cleanup FROM wh_nagios.services WHERE id = p_partid;
+    SELECT last_cleanup INTO v_previous_cleanup FROM wh_nagios.services WHERE id = p_serviceid;
 
     IF NOT FOUND THEN
         RETURN false;
     END IF;
-    v_partname := 'counters_detail_' || p_partid;
+    FOR v_partid IN SELECT id FROM wh_nagios.labels WHERE id_service = p_serviceid LOOP
+        v_partname := 'counters_detail_' || v_partid;
 
-    EXECUTE 'LOCK TABLE wh_nagios.' || v_partname;
-    EXECUTE 'CREATE TEMP TABLE tmp AS SELECT (unnest(records)).* FROM wh_nagios.'|| v_partname;
+        EXECUTE 'LOCK TABLE wh_nagios.' || v_partname;
+        EXECUTE 'CREATE TEMP TABLE tmp AS SELECT (unnest(records)).* FROM wh_nagios.'|| v_partname;
 
-    SELECT min(timet),max(timet) INTO v_oldest,v_newest FROM tmp;
+        SELECT min(timet),max(timet) INTO v_oldest,v_newest FROM tmp;
 
-    OPEN c_tmp FOR EXECUTE 'SELECT timet,value FROM tmp WHERE timet >= ' || quote_literal(v_previous_cleanup) || ' AND timet <= ' || quote_literal(p_max_timestamp) || ' ORDER BY timet';
-    LOOP
-        FETCH c_tmp INTO r_tmp;
-        v_cursor_found := FOUND;
-        v_counter := v_counter+1;
-        IF (v_cursor_found AND v_current_value IS NULL) THEN
-            v_current_value := r_tmp.value;
-            v_start_range := r_tmp.timet;
-            v_counter := 1;
-        ELSIF (NOT v_cursor_found OR v_current_value <> r_tmp.value) THEN
-            IF (v_counter>= 4) THEN
-                RAISE DEBUG 'DELETE BETWEEN % and % on partition %, counter=%',v_start_range,v_previous_timet,p_partid,v_counter;
-                EXECUTE 'DELETE FROM tmp WHERE timet > $1 AND timet < $2' USING v_start_range,v_previous_timet;
+        OPEN c_tmp FOR EXECUTE 'SELECT timet,value FROM tmp WHERE timet >= ' || quote_literal(v_previous_cleanup) || ' AND timet <= ' || quote_literal(p_max_timestamp) || ' ORDER BY timet';
+        LOOP
+            FETCH c_tmp INTO r_tmp;
+            v_cursor_found := FOUND;
+            v_counter := v_counter+1;
+            IF (v_cursor_found AND v_current_value IS NULL) THEN
+                v_current_value := r_tmp.value;
+                v_start_range := r_tmp.timet;
+                v_counter := 1;
+            ELSIF (NOT v_cursor_found OR v_current_value <> r_tmp.value) THEN
+                IF (v_counter>= 4) THEN
+                    RAISE DEBUG 'DELETE BETWEEN % and % on partition %, counter=%',v_start_range,v_previous_timet,v_partid,v_counter;
+                    EXECUTE 'DELETE FROM tmp WHERE timet > $1 AND timet < $2' USING v_start_range,v_previous_timet;
+                END IF;
+                EXIT WHEN NOT v_cursor_found;
+
+                v_start_range := r_tmp.timet;
+                v_current_value := r_tmp.value;
+                v_counter := 1;
             END IF;
-            EXIT WHEN NOT v_cursor_found;
+            v_previous_timet := r_tmp.timet;
+        END LOOP;
+        CLOSE c_tmp;
 
-            v_start_range := r_tmp.timet;
-            v_current_value := r_tmp.value;
-            v_counter := 1;
-        END IF;
-        v_previous_timet := r_tmp.timet;
+        RAISE DEBUG 'truncate wh_nagios.%',v_partname;
+        EXECUTE 'TRUNCATE wh_nagios.' || v_partname;
+        EXECUTE 'INSERT INTO wh_nagios.' || v_partname || ' SELECT date_trunc(''day'',timet),array_agg(row(timet,value)::wh_nagios.counters_detail) FROM tmp GROUP BY date_trunc(''day'',timet)';
+        EXECUTE 'DROP TABLE tmp';
     END LOOP;
-    CLOSE c_tmp;
-
-    RAISE DEBUG 'truncate wh_nagios.%',v_partname;
-    EXECUTE 'TRUNCATE wh_nagios.' || v_partname;
-    EXECUTE 'INSERT INTO wh_nagios.' || v_partname || ' SELECT date_trunc(''day'',timet),array_agg(row(timet,value)::wh_nagios.counters_detail) FROM tmp GROUP BY date_trunc(''day'',timet)';
-    EXECUTE 'DROP TABLE tmp';
 
     UPDATE wh_nagios.services SET last_cleanup = p_max_timestamp, oldest_record = v_oldest, newest_record = v_newest
-        WHERE id = p_partid;
+        WHERE id = p_serviceid;
     RETURN true;
 END;
 $$
@@ -506,11 +507,11 @@ LANGUAGE plpgsql
 VOLATILE
 LEAKPROOF;
 
-ALTER FUNCTION wh_nagios.cleanup_partition(bigint, timestamp with time zone)
+ALTER FUNCTION wh_nagios.cleanup_service(bigint, timestamp with time zone)
     OWNER TO pgfactory;
-REVOKE ALL ON FUNCTION wh_nagios.cleanup_partition(bigint, timestamp with time zone)
+REVOKE ALL ON FUNCTION wh_nagios.cleanup_service(bigint, timestamp with time zone)
     FROM public;
-GRANT EXECUTE ON FUNCTION wh_nagios.cleanup_partition(bigint, timestamp with time zone)
+GRANT EXECUTE ON FUNCTION wh_nagios.cleanup_service(bigint, timestamp with time zone)
     TO pgf_admins;
 
 CREATE FUNCTION wh_nagios.get_sampled_label_data(id_label bigint, timet_begin timestamp with time zone, timet_end timestamp with time zone, sample_sec integer)
