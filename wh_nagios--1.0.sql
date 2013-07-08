@@ -298,7 +298,7 @@ TODO: Handle seracl
                         OR ( (cur->'max') IS NOT NULL AND (servicesrow.max <> (cur->'max')::numeric OR (servicesrow.max IS NULL)) )
                         OR ( (cur->'warning') IS NOT NULL AND (servicesrow.warning <> (cur->'warning')::numeric OR (servicesrow.warning IS NULL)) )
                         OR ( (cur->'critical') IS NOT NULL AND (servicesrow.critical <> (cur->'critical')::numeric OR (servicesrow.critical IS NULL)) )
-                        OR ( (cur->'unit') IS NOT NULL AND (servicesrow.unit <> (cur->'unit') OR (servicesrow.unit IS NULL)) )
+                        OR ( (cur->'uom') IS NOT NULL AND (servicesrow.unit <> (cur->'uom') OR (servicesrow.unit IS NULL)) )
                         OR (servicesrow.newest_record +'5 minutes'::interval < now() )
                     ) THEN
                         msg_err := 'Error during UPDATE on wh_nagios.services: %L - %L';
@@ -317,7 +317,7 @@ TODO: Handle seracl
                             cur->'max',
                             cur->'warning',
                             cur->'critical',
-                            cur->'unit',
+                            cur->'uom',
                             cur->'timet',
                             servicesrow.id);
                     END IF;
