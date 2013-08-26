@@ -28,7 +28,6 @@ ALTER TABLE wh_nagios.hub_reject OWNER TO pgfactory;
 REVOKE ALL ON TABLE wh_nagios.hub_reject FROM public;
 
 CREATE TABLE wh_nagios.services (
-    unit             text,
     state            text,
     min              numeric,
     max              numeric,
@@ -48,7 +47,8 @@ REVOKE ALL ON TABLE wh_nagios.services FROM public ;
 CREATE TABLE wh_nagios.labels (
     id              bigserial PRIMARY KEY,
     id_service		bigint NOT NULL,
-    label           text NOT NULL
+    label           text NOT NULL,
+    unit            text
 );
 ALTER TABLE wh_nagios.labels OWNER TO pgfactory;
 REVOKE ALL ON wh_nagios.labels FROM public;
@@ -56,7 +56,7 @@ CREATE INDEX ON wh_nagios.labels USING btree (id_service);
 ALTER TABLE wh_nagios.labels ADD CONSTRAINT wh_nagios_labels_fk FOREIGN KEY (id_service) REFERENCES wh_nagios.services (id) MATCH FULL ON DELETE CASCADE ON UPDATE CASCADE;
 
 CREATE VIEW wh_nagios.services_labels AS
-    SELECT s.*,l.id as id_label,l.label
+    SELECT s.*, l.id as id_label, l.label, l.unit
     FROM wh_nagios.services s
     JOIN wh_nagios.labels l
         ON s.id = l.id_service;
@@ -171,20 +171,21 @@ Return every id and label for a service
 @service_id: service wanted
 @return : id and label for labels
 */
-CREATE OR REPLACE FUNCTION wh_nagios.list_label(p_service_id bigint) RETURNS TABLE (id_label bigint, label text)
+CREATE OR REPLACE FUNCTION wh_nagios.list_label(p_service_id bigint) RETURNS TABLE (id_label bigint, label text, unit text)
 AS $$
 DECLARE
 BEGIN
     IF pg_has_role(session_user, 'pgf_admins', 'MEMBER') THEN
-        RETURN QUERY SELECT l.id, l.label
+        RETURN QUERY SELECT l.id, l.label, l.unit
             FROM wh_nagios.labels l
             JOIN wh_nagios.services s
                 ON s.id = l.id_service
             WHERE s.id = p_service_id;
     ELSE
-        RETURN QUERY SELECT l.id, l.label
+        RETURN QUERY SELECT l.id, l.label, l.unit
             FROM list_services() s
-            JOIN wh_nagios.labels l ON s.id = l.id_service
+            JOIN wh_nagios.labels l
+                ON s.id = l.id_service
             WHERE s.id = p_service_id
         ;
         END IF;
@@ -235,11 +236,11 @@ DECLARE
     --Use NOWAIT so there can't be two concurrent processes
     c_hub CURSOR FOR SELECT * FROM wh_nagios.hub FOR UPDATE NOWAIT;
     r_hub record;
-    v_service_label_id bigint;
     i integer;
     cur hstore;
     msg_err text;
     servicesrow wh_nagios.services%ROWTYPE;
+    labelsrow wh_nagios.labels%ROWTYPE;
     serversrow public.servers%ROWTYPE;
 BEGIN
 /*
@@ -252,144 +253,9 @@ TODO: Handle seracl
     BEGIN
         FOR r_hub IN c_hub LOOP
             msg_err := NULL;
-            --Check 1 dimension,even number of data and at least 10 vals
-            IF ((array_upper(r_hub.data,2) IS NULL) AND (array_upper(r_hub.data,1) > 9) AND ((array_upper(r_hub.data,1) % 2) = 0)) THEN
-                cur := NULL;
-                --Get all data as hstore,lowercase
-                FOR i IN 1..array_upper(r_hub.data,1) BY 2 LOOP
-                    IF (cur IS NULL) THEN
-                        cur := hstore(lower(r_hub.data[i]),r_hub.data[i+1]);
-                    ELSE
-                        cur := cur || hstore(lower(r_hub.data[i]),r_hub.data[i+1]);
-                    END IF;
-                END LOOP;
-                serversrow := NULL;
-                servicesrow := NULL;
-                --Do we have all informations needed ?
-                IF ( ((cur->'hostname') IS NOT NULL) AND ((cur->'servicedesc') IS NOT NULL) AND ((cur->'label') IS NOT NULL) AND ((cur->'timet') IS NOT NULL) AND ((cur->'value') IS NOT NULL) ) THEN
-                BEGIN
-                    --Does the server exists ?
-                    SELECT * INTO serversrow
-                    FROM public.servers
-                    WHERE hostname = (cur->'hostname');
 
-                    IF NOT FOUND THEN
-                        msg_err := 'Error during INSERT OR UPDATE on public.servers: %L - %L';
-                        EXECUTE format('INSERT INTO public.servers(hostname) VALUES (%L) RETURNING *', (cur->'hostname')) INTO STRICT serversrow;                    END IF;
-                    --Does the service exists ?
-                    SELECT s2.* INTO servicesrow
-                    FROM public.servers s1
-                    JOIN wh_nagios.services s2 ON s1.id = s2.id_server
-                    WHERE hostname = (cur->'hostname')
-                        AND service = (cur->'servicedesc');
-
-                    IF NOT FOUND THEN
-                        msg_err := 'Error during INSERT OR UPDATE on wh_nagios.services: %L - %L';
-
-                        INSERT INTO wh_nagios.services (id,id_server,warehouse,service,unit,state,min,max,critical,warning)
-                        VALUES (default,serversrow.id,'wh_nagios',cur->'servicedesc',cur->'uom',cur->'servicestate',(cur->'min')::numeric,(cur->'max')::numeric,(cur->'critical')::numeric,(cur->'warning')::numeric)
-                        RETURNING * INTO STRICT servicesrow;
-                        EXECUTE format('UPDATE wh_nagios.services SET oldest_record = timestamp with time zone ''epoch''+%L * INTERVAL ''1 second''',(cur->'timet'));
-                    END IF;
-                    --Do we need to update the service ?
-                    IF ( (servicesrow.last_modified + '1 day'::interval < CURRENT_DATE)
-                        OR ( (cur->'servicestate') IS NOT NULL AND (servicesrow.state <> (cur->'servicestate') OR servicesrow.state IS NULL) )
-                        OR ( (cur->'min') IS NOT NULL AND (servicesrow.min <> (cur->'min')::numeric OR (servicesrow.min IS NULL)) ) 
-                        OR ( (cur->'max') IS NOT NULL AND (servicesrow.max <> (cur->'max')::numeric OR (servicesrow.max IS NULL)) )
-                        OR ( (cur->'warning') IS NOT NULL AND (servicesrow.warning <> (cur->'warning')::numeric OR (servicesrow.warning IS NULL)) )
-                        OR ( (cur->'critical') IS NOT NULL AND (servicesrow.critical <> (cur->'critical')::numeric OR (servicesrow.critical IS NULL)) )
-                        OR ( (cur->'uom') IS NOT NULL AND (servicesrow.unit <> (cur->'uom') OR (servicesrow.unit IS NULL)) )
-                        OR (servicesrow.newest_record +'5 minutes'::interval < now() )
-                    ) THEN
-                        msg_err := 'Error during UPDATE on wh_nagios.services: %L - %L';
-
-                        EXECUTE format('UPDATE wh_nagios.services SET last_modified = CURRENT_DATE,
-                                state = %L,
-                                min = %L,
-                                max = %L,
-                                warning = %L,
-                                critical = %L,
-                                unit = %L,
-                                newest_record= timestamp with time zone ''epoch'' +%L * INTERVAL ''1 second''
-                            WHERE id = %s',
-                            cur->'servicestate',
-                            cur->'min',
-                            cur->'max',
-                            cur->'warning',
-                            cur->'critical',
-                            cur->'uom',
-                            cur->'timet',
-                            servicesrow.id);
-                    END IF;
-
-                    --Does the label exists ?
-                    SELECT id INTO v_service_label_id
-                        FROM wh_nagios.labels
-                        WHERE id_service = servicesrow.id
-                        AND label = (cur->'label');
-
-                    IF NOT FOUND THEN
-                        msg_err := 'Error during INSERT on wh_nagios.labels: %L - %L';
-
-                        -- The trigger on wh_nagios.services_label will create the partition counters_detail_$service_id automatically
-                        INSERT INTO wh_nagios.labels (id_service,label)
-                            VALUES (servicesrow.id,(cur->'label')) RETURNING id INTO v_service_label_id;
-                    END IF;
-
-                    IF (servicesrow IS NOT NULL AND servicesrow.last_cleanup < now() - '10 days'::interval) THEN
-                        PERFORM wh_nagios.cleanup_service(servicesrow.id,now()- '7 days'::interval);
-                    END IF;
-
-                    msg_err := format('Error during INSERT on counters_detail_%s: %%L - %%L', v_service_label_id);
-
-                    EXECUTE format(
-                        'INSERT INTO wh_nagios.counters_detail_%s (date_records,records)
-                        VALUES (
-                            date_trunc(''day'',timestamp with time zone ''epoch''+%L * INTERVAL ''1 second''),
-                            array[row(timestamp with time zone ''epoch''+%L * INTERVAL ''1 second'',%L )]::wh_nagios.counters_detail[]
-                        )',
-                        v_service_label_id,
-                        cur->'timet',
-                        cur->'timet',
-                        cur->'value'
-                    );
-
-                    -- one line has been processed with success !
-                    processed := processed  + 1;
-                EXCEPTION
-                    WHEN OTHERS THEN
-                        IF (log_error = TRUE) THEN
-                            INSERT INTO wh_nagios.hub_reject (id, data,msg) VALUES (r_hub.id, r_hub.data, format(msg_err, SQLSTATE, SQLERRM));
-                        END IF;
-
-                        -- We faile on the way for this one
-                        failed := failed + 1;
-                END;
-                ELSE
-                    IF (log_error = TRUE) THEN
-                        msg_err := NULL;
-                        IF ((cur->'hostname') IS NULL) THEN
-                            msg_err := COALESCE(msg_err,'') || 'hostname required';
-                        END IF;
-                        IF ((cur->'servicedesc') IS NULL) THEN
-                            msg_err := COALESCE(msg_err || ',','') || 'servicedesc required';
-                        END IF;
-                        IF ((cur->'label') IS NULL) THEN
-                            msg_err := COALESCE(msg_err || ',','') || 'label required';
-                        END IF;
-                        IF ((cur->'timet') IS NULL) THEN
-                            msg_err := COALESCE(msg_err || ',','') || 'timet required';
-                        END IF;
-                        IF ((cur->'value') IS NULL) THEN
-                            msg_err := COALESCE(msg_err || ',','') || 'value required';
-                        END IF;
-
-                        INSERT INTO wh_nagios.hub_reject (id, data,msg) VALUES (r_hub.id, r_hub.data, msg_err);
-                    END IF;
-
-                    failed := failed + 1;
-                END IF;
-            ELSE
+            --Check 1 dimension,at least 10 vals and even number of data
+            IF ( (array_upper(r_hub.data, 2) IS NOT NULL) OR (array_upper(r_hub.data,1) < 10) OR ((array_upper(r_hub.data,1) % 2) <> 0) ) THEN
                 IF (log_error = TRUE) THEN
                     msg_err := NULL;
                     IF (array_upper(r_hub.data,2) IS NOT NULL) THEN
@@ -406,7 +272,175 @@ TODO: Handle seracl
                 END IF;
 
                 failed := failed + 1;
+
+                DELETE FROM wh_nagios.hub WHERE CURRENT OF c_hub;
+
+                CONTINUE;
             END IF;
+
+            cur := NULL;
+            --Get all data as hstore,lowercase
+            FOR i IN 1..array_upper(r_hub.data,1) BY 2 LOOP
+                IF (cur IS NULL) THEN
+                    cur := hstore(lower(r_hub.data[i]),r_hub.data[i+1]);
+                ELSE
+                    cur := cur || hstore(lower(r_hub.data[i]),r_hub.data[i+1]);
+                END IF;
+            END LOOP;
+
+            serversrow := NULL;
+            servicesrow := NULL;
+            labelsrow := NULL;
+
+            --Do we have all informations needed ?
+            IF ( ((cur->'hostname') IS NULL)
+                OR ((cur->'servicedesc') IS NULL)
+                OR ((cur->'label') IS NULL)
+                OR ((cur->'timet') IS NULL)
+                OR ((cur->'value') IS NULL)
+            ) THEN
+                IF (log_error = TRUE) THEN
+                    msg_err := NULL;
+                    IF ((cur->'hostname') IS NULL) THEN
+                        msg_err := COALESCE(msg_err,'') || 'hostname required';
+                    END IF;
+                    IF ((cur->'servicedesc') IS NULL) THEN
+                        msg_err := COALESCE(msg_err || ',','') || 'servicedesc required';
+                    END IF;
+                    IF ((cur->'label') IS NULL) THEN
+                        msg_err := COALESCE(msg_err || ',','') || 'label required';
+                    END IF;
+                    IF ((cur->'timet') IS NULL) THEN
+                        msg_err := COALESCE(msg_err || ',','') || 'timet required';
+                    END IF;
+                    IF ((cur->'value') IS NULL) THEN
+                        msg_err := COALESCE(msg_err || ',','') || 'value required';
+                    END IF;
+
+                    INSERT INTO wh_nagios.hub_reject (id, data,msg) VALUES (r_hub.id, r_hub.data, msg_err);
+                END IF;
+
+                failed := failed + 1;
+
+                DELETE FROM wh_nagios.hub WHERE CURRENT OF c_hub;
+
+                CONTINUE;
+            END IF;
+
+            BEGIN
+                --Does the server exists ?
+                SELECT * INTO serversrow
+                FROM public.servers
+                WHERE hostname = (cur->'hostname');
+
+                IF NOT FOUND THEN
+                    msg_err := 'Error during INSERT OR UPDATE on public.servers: %L - %L';
+                    EXECUTE format('INSERT INTO public.servers(hostname) VALUES (%L) RETURNING *', (cur->'hostname')) INTO STRICT serversrow;
+                END IF;
+
+                --Does the service exists ?
+                SELECT s2.* INTO servicesrow
+                FROM public.servers s1
+                JOIN wh_nagios.services s2 ON s1.id = s2.id_server
+                WHERE hostname = (cur->'hostname')
+                    AND service = (cur->'servicedesc');
+
+                IF NOT FOUND THEN
+                    msg_err := 'Error during INSERT OR UPDATE on wh_nagios.services: %L - %L';
+
+                    INSERT INTO wh_nagios.services (id,id_server,warehouse,service,state,min,max,critical,warning)
+                    VALUES (default,serversrow.id,'wh_nagios',cur->'servicedesc',cur->'servicestate',(cur->'min')::numeric,(cur->'max')::numeric,(cur->'critical')::numeric,(cur->'warning')::numeric)
+                    RETURNING * INTO STRICT servicesrow;
+                    EXECUTE format('UPDATE wh_nagios.services
+                        SET oldest_record = timestamp with time zone ''epoch''+%L * INTERVAL ''1 second''
+                        WHERE id = $1',(cur->'timet')) USING servicesrow.id;
+                END IF;
+
+                --Do we need to update the service ?
+                IF ( (servicesrow.last_modified + '1 day'::interval < CURRENT_DATE)
+                    OR ( (cur->'servicestate') IS NOT NULL AND (servicesrow.state <> (cur->'servicestate') OR servicesrow.state IS NULL) )
+                    OR ( (cur->'min') IS NOT NULL AND (servicesrow.min <> (cur->'min')::numeric OR (servicesrow.min IS NULL)) ) 
+                    OR ( (cur->'max') IS NOT NULL AND (servicesrow.max <> (cur->'max')::numeric OR (servicesrow.max IS NULL)) )
+                    OR ( (cur->'warning') IS NOT NULL AND (servicesrow.warning <> (cur->'warning')::numeric OR (servicesrow.warning IS NULL)) )
+                    OR ( (cur->'critical') IS NOT NULL AND (servicesrow.critical <> (cur->'critical')::numeric OR (servicesrow.critical IS NULL)) )
+                    OR ( servicesrow.newest_record +'5 minutes'::interval < now() )
+                ) THEN
+                    msg_err := 'Error during UPDATE on wh_nagios.services: %L - %L';
+
+                    EXECUTE format('UPDATE wh_nagios.services SET last_modified = CURRENT_DATE,
+                            state = %L,
+                            min = %L,
+                            max = %L,
+                            warning = %L,
+                            critical = %L,
+                            newest_record= timestamp with time zone ''epoch'' +%L * INTERVAL ''1 second''
+                        WHERE id = %s',
+                        cur->'servicestate',
+                        cur->'min',
+                        cur->'max',
+                        cur->'warning',
+                        cur->'critical',
+                        cur->'timet',
+                        servicesrow.id);
+                END IF;
+
+
+                --Does the label exists ?
+                SELECT l.* INTO labelsrow
+                FROM wh_nagios.labels AS l
+                WHERE id_service = servicesrow.id
+                    AND label = (cur->'label');
+
+                IF NOT FOUND THEN
+                    msg_err := 'Error during INSERT on wh_nagios.labels: %L - %L';
+
+                    -- The trigger on wh_nagios.services_label will create the partition counters_detail_$service_id automatically
+                    INSERT INTO wh_nagios.labels (id_service, label, unit)
+                    VALUES (servicesrow.id, cur->'label', cur->'uom')
+                    RETURNING * INTO STRICT labelsrow;
+                END IF;
+
+                --Do we need to update the label ?
+                IF ( (cur->'uom') IS NOT NULL AND (labelsrow.unit <> (cur->'uom') OR (labelsrow.unit IS NULL)) ) THEN
+                    msg_err := 'Error during UPDATE on wh_nagios.labels: %L - %L';
+
+                    EXECUTE format('UPDATE wh_nagios.labels SET
+                            unit = %L
+                        WHERE id = $1',
+                        cur->'uom') USING labelsrow.id;
+                END IF;
+
+
+                IF (servicesrow IS NOT NULL AND servicesrow.last_cleanup < now() - '10 days'::interval) THEN
+                    PERFORM wh_nagios.cleanup_service(servicesrow.id,now()- '7 days'::interval);
+                END IF;
+
+
+                msg_err := format('Error during INSERT on counters_detail_%s: %%L - %%L', labelsrow.id);
+
+                EXECUTE format(
+                    'INSERT INTO wh_nagios.counters_detail_%s (date_records,records)
+                    VALUES (
+                        date_trunc(''day'',timestamp with time zone ''epoch''+%L * INTERVAL ''1 second''),
+                        array[row(timestamp with time zone ''epoch''+%L * INTERVAL ''1 second'',%L )]::wh_nagios.counters_detail[]
+                    )',
+                    labelsrow.id,
+                    cur->'timet',
+                    cur->'timet',
+                    cur->'value'
+                );
+
+                -- one line has been processed with success !
+                processed := processed  + 1;
+            EXCEPTION
+                WHEN OTHERS THEN
+                    IF (log_error = TRUE) THEN
+                        INSERT INTO wh_nagios.hub_reject (id, data,msg) VALUES (r_hub.id, r_hub.data, format(msg_err, SQLSTATE, SQLERRM));
+                    END IF;
+
+                    -- We faile on the way for this one
+                    failed := failed + 1;
+            END;
 
             --Delete current line (processed or failed)
             DELETE FROM wh_nagios.hub WHERE CURRENT OF c_hub;
