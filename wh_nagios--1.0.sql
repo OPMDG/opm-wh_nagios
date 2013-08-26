@@ -55,8 +55,9 @@ REVOKE ALL ON wh_nagios.labels FROM public;
 CREATE INDEX ON wh_nagios.labels USING btree (id_service);
 ALTER TABLE wh_nagios.labels ADD CONSTRAINT wh_nagios_labels_fk FOREIGN KEY (id_service) REFERENCES wh_nagios.services (id) MATCH FULL ON DELETE CASCADE ON UPDATE CASCADE;
 
-CREATE VIEW wh_nagios.services_labels AS
-    SELECT s.*, l.id as id_label, l.label, l.unit
+CREATE OR REPLACE VIEW wh_nagios.services_labels AS
+    SELECT s.id, s.id_server, s.warehouse, s.service, s.last_modified, s.creation_ts, s.last_cleanup, s.servalid, s.state, s.min, s.max, s.critical, s.warning, s.oldest_record, s.newest_record,
+     l.id as id_label, l.label, l.unit
     FROM wh_nagios.services s
     JOIN wh_nagios.labels l
         ON s.id = l.id_service;
