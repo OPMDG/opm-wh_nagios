@@ -29,10 +29,6 @@ REVOKE ALL ON TABLE wh_nagios.hub_reject FROM public;
 
 CREATE TABLE wh_nagios.services (
     state            text,
-    min              numeric,
-    max              numeric,
-    critical         numeric,
-    warning          numeric,
     oldest_record    timestamptz DEFAULT now(),
     newest_record    timestamptz
 )
@@ -46,9 +42,13 @@ REVOKE ALL ON TABLE wh_nagios.services FROM public ;
 
 CREATE TABLE wh_nagios.labels (
     id              bigserial PRIMARY KEY,
-    id_service		bigint NOT NULL,
+    id_service      bigint NOT NULL,
     label           text NOT NULL,
-    unit            text
+    unit            text,
+    min             numeric,
+    max             numeric,
+    critical        numeric,
+    warning         numeric
 );
 ALTER TABLE wh_nagios.labels OWNER TO pgfactory;
 REVOKE ALL ON wh_nagios.labels FROM public;
@@ -56,7 +56,7 @@ CREATE INDEX ON wh_nagios.labels USING btree (id_service);
 ALTER TABLE wh_nagios.labels ADD CONSTRAINT wh_nagios_labels_fk FOREIGN KEY (id_service) REFERENCES wh_nagios.services (id) MATCH FULL ON DELETE CASCADE ON UPDATE CASCADE;
 
 CREATE OR REPLACE VIEW wh_nagios.services_labels AS
-    SELECT s.id, s.id_server, s.warehouse, s.service, s.last_modified, s.creation_ts, s.last_cleanup, s.servalid, s.state, s.min, s.max, s.critical, s.warning, s.oldest_record, s.newest_record,
+    SELECT s.id, s.id_server, s.warehouse, s.service, s.last_modified, s.creation_ts, s.last_cleanup, s.servalid, s.state, l.min, l.max, l.critical, l.warning, s.oldest_record, s.newest_record,
      l.id as id_label, l.label, l.unit
     FROM wh_nagios.services s
     JOIN wh_nagios.labels l
@@ -245,7 +245,7 @@ DECLARE
     serversrow public.servers%ROWTYPE;
 BEGIN
 /*
-TODO: Handle seracl 
+TODO: Handle seracl
 
 */
     processed := 0;
@@ -349,8 +349,8 @@ TODO: Handle seracl
                 IF NOT FOUND THEN
                     msg_err := 'Error during INSERT OR UPDATE on wh_nagios.services: %L - %L';
 
-                    INSERT INTO wh_nagios.services (id,id_server,warehouse,service,state,min,max,critical,warning)
-                    VALUES (default,serversrow.id,'wh_nagios',cur->'servicedesc',cur->'servicestate',(cur->'min')::numeric,(cur->'max')::numeric,(cur->'critical')::numeric,(cur->'warning')::numeric)
+                    INSERT INTO wh_nagios.services (id,id_server,warehouse,service,state)
+                    VALUES (default,serversrow.id,'wh_nagios',cur->'servicedesc',cur->'servicestate')
                     RETURNING * INTO STRICT servicesrow;
                     EXECUTE format('UPDATE wh_nagios.services
                         SET oldest_record = timestamp with time zone ''epoch''+%L * INTERVAL ''1 second''
@@ -360,27 +360,15 @@ TODO: Handle seracl
                 --Do we need to update the service ?
                 IF ( (servicesrow.last_modified + '1 day'::interval < CURRENT_DATE)
                     OR ( (cur->'servicestate') IS NOT NULL AND (servicesrow.state <> (cur->'servicestate') OR servicesrow.state IS NULL) )
-                    OR ( (cur->'min') IS NOT NULL AND (servicesrow.min <> (cur->'min')::numeric OR (servicesrow.min IS NULL)) ) 
-                    OR ( (cur->'max') IS NOT NULL AND (servicesrow.max <> (cur->'max')::numeric OR (servicesrow.max IS NULL)) )
-                    OR ( (cur->'warning') IS NOT NULL AND (servicesrow.warning <> (cur->'warning')::numeric OR (servicesrow.warning IS NULL)) )
-                    OR ( (cur->'critical') IS NOT NULL AND (servicesrow.critical <> (cur->'critical')::numeric OR (servicesrow.critical IS NULL)) )
                     OR ( servicesrow.newest_record +'5 minutes'::interval < now() )
                 ) THEN
                     msg_err := 'Error during UPDATE on wh_nagios.services: %L - %L';
 
                     EXECUTE format('UPDATE wh_nagios.services SET last_modified = CURRENT_DATE,
                             state = %L,
-                            min = %L,
-                            max = %L,
-                            warning = %L,
-                            critical = %L,
                             newest_record= timestamp with time zone ''epoch'' +%L * INTERVAL ''1 second''
                         WHERE id = %s',
                         cur->'servicestate',
-                        cur->'min',
-                        cur->'max',
-                        cur->'warning',
-                        cur->'critical',
                         cur->'timet',
                         servicesrow.id);
                 END IF;
@@ -396,19 +384,33 @@ TODO: Handle seracl
                     msg_err := 'Error during INSERT on wh_nagios.labels: %L - %L';
 
                     -- The trigger on wh_nagios.services_label will create the partition counters_detail_$service_id automatically
-                    INSERT INTO wh_nagios.labels (id_service, label, unit)
-                    VALUES (servicesrow.id, cur->'label', cur->'uom')
+                    INSERT INTO wh_nagios.labels (id_service, label, unit, min, max, warning, critical)
+                    VALUES (servicesrow.id, cur->'label', cur->'uom', (cur->'min')::numeric, (cur->'max')::numeric, (cur->'warning')::numeric, (cur->'critical')::numeric)
                     RETURNING * INTO STRICT labelsrow;
                 END IF;
 
                 --Do we need to update the label ?
-                IF ( (cur->'uom') IS NOT NULL AND (labelsrow.unit <> (cur->'uom') OR (labelsrow.unit IS NULL)) ) THEN
+                IF ( ( (cur->'uom') IS NOT NULL AND (labelsrow.unit <> (cur->'uom') OR (labelsrow.unit IS NULL)) )
+                    OR ( (cur->'min') IS NOT NULL AND (labelsrow.min <> (cur->'min')::numeric OR (labelsrow.min IS NULL)) )
+                    OR ( (cur->'max') IS NOT NULL AND (labelsrow.max <> (cur->'max')::numeric OR (labelsrow.max IS NULL)) )
+                    OR ( (cur->'warning') IS NOT NULL AND (labelsrow.warning <> (cur->'warning')::numeric OR (labelsrow.warning IS NULL)) )
+                    OR ( (cur->'critical') IS NOT NULL AND (labelsrow.critical <> (cur->'critical')::numeric OR (labelsrow.critical IS NULL)) )
+                ) THEN
                     msg_err := 'Error during UPDATE on wh_nagios.labels: %L - %L';
 
                     EXECUTE format('UPDATE wh_nagios.labels SET
                             unit = %L
+                            min = %L,
+                            max = %L,
+                            warning = %L,
+                            critical = %L,
                         WHERE id = $1',
-                        cur->'uom') USING labelsrow.id;
+                        cur->'uom',
+                        cur->'min',
+                        cur->'max',
+                        cur->'warning',
+                        cur->'critical'
+                    ) USING labelsrow.id;
                 END IF;
 
 
@@ -739,7 +741,7 @@ BEGIN
     EXECUTE format('CREATE TABLE wh_nagios.counters_detail_%s (date_records date, records wh_nagios.counters_detail[])', NEW.id);
     EXECUTE format('ALTER TABLE wh_nagios.counters_detail_%s OWNER TO pgfactory;', NEW.id);
     EXECUTE format('REVOKE ALL ON TABLE wh_nagios.counters_detail_%s FROM public;', NEW.id);
-    
+
     SELECT rolname INTO v_rolname FROM public.list_servers() s1 JOIN wh_nagios.services s2 ON s2.id_server = s1.id WHERE s2.id = NEW.id_service ;
     IF ( v_rolname IS NOT NULL) THEN
         EXECUTE format('GRANT SELECT ON TABLE wh_nagios.counters_detail_%s TO %I;', NEW.id, v_rolname);
