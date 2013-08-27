@@ -172,18 +172,18 @@ Return every id and label for a service
 @service_id: service wanted
 @return : id and label for labels
 */
-CREATE OR REPLACE FUNCTION wh_nagios.list_label(p_service_id bigint) RETURNS TABLE (id_label bigint, label text, unit text)
+CREATE OR REPLACE FUNCTION wh_nagios.list_label(p_service_id bigint) RETURNS TABLE (id_label bigint, label text, unit text, min numeric, max numeric, critical numeric, warning numeric)
 AS $$
 DECLARE
 BEGIN
     IF pg_has_role(session_user, 'pgf_admins', 'MEMBER') THEN
-        RETURN QUERY SELECT l.id, l.label, l.unit
+        RETURN QUERY SELECT l.id, l.label, l.unit, l.min, l.max, l.critical, l.warning
             FROM wh_nagios.labels l
             JOIN wh_nagios.services s
                 ON s.id = l.id_service
             WHERE s.id = p_service_id;
     ELSE
-        RETURN QUERY SELECT l.id, l.label, l.unit
+        RETURN QUERY SELECT l.id, l.label, l.unit, l.min, l.max, l.critical, l.warning
             FROM list_services() s
             JOIN wh_nagios.labels l
                 ON s.id = l.id_service
