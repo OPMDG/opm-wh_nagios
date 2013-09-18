@@ -235,7 +235,7 @@ CREATE OR REPLACE FUNCTION wh_nagios.dispatch_record(log_error boolean DEFAULT f
 DECLARE
     --Select current lines and lock them so then can be deleted
     --Use NOWAIT so there can't be two concurrent processes
-    c_hub CURSOR FOR SELECT * FROM wh_nagios.hub FOR UPDATE NOWAIT;
+    c_hub CURSOR FOR SELECT * FROM wh_nagios.hub LIMIT 50000 FOR UPDATE NOWAIT;
     r_hub record;
     i integer;
     cur hstore;
