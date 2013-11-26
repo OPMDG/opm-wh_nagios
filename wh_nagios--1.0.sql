@@ -408,11 +408,11 @@ TODO: Handle seracl
                     msg_err := 'Error during UPDATE on wh_nagios.labels: %L - %L';
 
                     EXECUTE format('UPDATE wh_nagios.labels SET
-                            unit = %L
+                            unit = %L,
                             min = %L,
                             max = %L,
                             warning = %L,
-                            critical = %L,
+                            critical = %L
                         WHERE id = $1',
                         cur->'uom',
                         cur->'min',
