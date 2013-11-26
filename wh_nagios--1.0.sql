@@ -3,20 +3,20 @@
 
 SET statement_timeout TO 0;
 
-ALTER SCHEMA wh_nagios OWNER TO pgfactory;
-GRANT USAGE ON SCHEMA wh_nagios TO pgf_roles;
+ALTER SCHEMA wh_nagios OWNER TO opm;
+GRANT USAGE ON SCHEMA wh_nagios TO opm_roles;
 
 CREATE TYPE wh_nagios.counters_detail AS (
     timet timestamp with time zone,
     value numeric
 );
-ALTER TYPE wh_nagios.counters_detail OWNER TO pgfactory;
+ALTER TYPE wh_nagios.counters_detail OWNER TO opm;
 
 CREATE TABLE wh_nagios.hub (
     id bigserial,
     data text[]
 );
-ALTER TABLE wh_nagios.hub OWNER TO pgfactory;
+ALTER TABLE wh_nagios.hub OWNER TO opm;
 REVOKE ALL ON TABLE wh_nagios.hub FROM public;
 
 CREATE TABLE wh_nagios.hub_reject (
@@ -24,7 +24,7 @@ CREATE TABLE wh_nagios.hub_reject (
     data text[],
     msg text
 );
-ALTER TABLE wh_nagios.hub_reject OWNER TO pgfactory;
+ALTER TABLE wh_nagios.hub_reject OWNER TO opm;
 REVOKE ALL ON TABLE wh_nagios.hub_reject FROM public;
 
 CREATE TABLE wh_nagios.services (
@@ -34,7 +34,7 @@ CREATE TABLE wh_nagios.services (
 )
 INHERITS (public.services);
 
-ALTER TABLE wh_nagios.services OWNER TO pgfactory;
+ALTER TABLE wh_nagios.services OWNER TO opm;
 ALTER TABLE wh_nagios.services ADD PRIMARY KEY (id);
 CREATE UNIQUE INDEX idx_wh_nagios_services_id_server_service
     ON wh_nagios.services USING btree (id_server,service);
@@ -50,18 +50,24 @@ CREATE TABLE wh_nagios.labels (
     critical        numeric,
     warning         numeric
 );
-ALTER TABLE wh_nagios.labels OWNER TO pgfactory;
+ALTER TABLE wh_nagios.labels OWNER TO opm;
 REVOKE ALL ON wh_nagios.labels FROM public;
 CREATE INDEX ON wh_nagios.labels USING btree (id_service);
-ALTER TABLE wh_nagios.labels ADD CONSTRAINT wh_nagios_labels_fk FOREIGN KEY (id_service) REFERENCES wh_nagios.services (id) MATCH FULL ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE wh_nagios.labels ADD CONSTRAINT wh_nagios_labels_fk
+    FOREIGN KEY (id_service)
+    REFERENCES wh_nagios.services (id) MATCH FULL
+    ON DELETE CASCADE ON UPDATE CASCADE;
 
 CREATE OR REPLACE VIEW wh_nagios.services_labels AS
-    SELECT s.id, s.id_server, s.warehouse, s.service, s.last_modified, s.creation_ts, s.last_cleanup, s.servalid, s.state, l.min, l.max, l.critical, l.warning, s.oldest_record, s.newest_record,
-     l.id as id_label, l.label, l.unit
+    SELECT s.id, s.id_server, s.warehouse, s.service, s.last_modified,
+        s.creation_ts, s.last_cleanup, s.servalid, s.state, l.min,
+        l.max, l.critical, l.warning, s.oldest_record, s.newest_record,
+        l.id as id_label, l.label, l.unit
     FROM wh_nagios.services s
     JOIN wh_nagios.labels l
         ON s.id = l.id_service;
-ALTER VIEW wh_nagios.services_labels OWNER TO pgfactory;
+
+ALTER VIEW wh_nagios.services_labels OWNER TO opm;
 REVOKE ALL ON wh_nagios.services_labels FROM public;
 
 SELECT pg_catalog.pg_extension_config_dump('wh_nagios.services', '');
@@ -111,9 +117,9 @@ VOLATILE
 LEAKPROOF
 SECURITY DEFINER;
 
-ALTER FUNCTION wh_nagios.grant_service(IN p_service_id bigint, IN p_rolname name, OUT rc boolean) OWNER TO pgfactory;
+ALTER FUNCTION wh_nagios.grant_service(IN p_service_id bigint, IN p_rolname name, OUT rc boolean) OWNER TO opm;
 REVOKE ALL ON FUNCTION wh_nagios.grant_service(IN p_service_id bigint, IN p_rolname name, OUT rc boolean) FROM public;
-GRANT ALL ON FUNCTION wh_nagios.grant_service(IN p_service_id bigint, IN p_rolname name, OUT rc boolean) TO pgf_admins;
+GRANT ALL ON FUNCTION wh_nagios.grant_service(IN p_service_id bigint, IN p_rolname name, OUT rc boolean) TO opm_admins;
 
 COMMENT ON FUNCTION wh_nagios.grant_service(IN p_service_id bigint, IN p_rolname name, OUT rc boolean) IS 'Grant SELECT on a service.';
 
@@ -160,9 +166,9 @@ VOLATILE
 LEAKPROOF
 SECURITY DEFINER;
 
-ALTER FUNCTION wh_nagios.revoke_service(IN p_service_id bigint, IN p_rolname name, OUT rc boolean) OWNER TO pgfactory;
+ALTER FUNCTION wh_nagios.revoke_service(IN p_service_id bigint, IN p_rolname name, OUT rc boolean) OWNER TO opm;
 REVOKE ALL ON FUNCTION wh_nagios.revoke_service(IN p_service_id bigint, IN p_rolname name, OUT rc boolean) FROM public;
-GRANT ALL ON FUNCTION wh_nagios.revoke_service(IN p_service_id bigint, IN p_rolname name, OUT rc boolean) TO pgf_admins;
+GRANT ALL ON FUNCTION wh_nagios.revoke_service(IN p_service_id bigint, IN p_rolname name, OUT rc boolean) TO opm_admins;
 
 COMMENT ON FUNCTION wh_nagios.revoke_service(IN p_service_id bigint, IN p_rolname name, OUT rc boolean) IS 'Revoke SELECT on a service.';
 
@@ -172,11 +178,13 @@ Return every id and label for a service
 @service_id: service wanted
 @return : id and label for labels
 */
-CREATE OR REPLACE FUNCTION wh_nagios.list_label(p_service_id bigint) RETURNS TABLE (id_label bigint, label text, unit text, min numeric, max numeric, critical numeric, warning numeric)
+CREATE OR REPLACE FUNCTION wh_nagios.list_label(p_service_id bigint)
+RETURNS TABLE (id_label bigint, label text, unit text, min numeric,
+    max numeric, critical numeric, warning numeric)
 AS $$
 DECLARE
 BEGIN
-    IF pg_has_role(session_user, 'pgf_admins', 'MEMBER') THEN
+    IF pg_has_role(session_user, 'opm_admins', 'MEMBER') THEN
         RETURN QUERY SELECT l.id, l.label, l.unit, l.min, l.max, l.critical, l.warning
             FROM wh_nagios.labels l
             JOIN wh_nagios.services s
@@ -193,19 +201,21 @@ BEGIN
 END;
 $$
 LANGUAGE plpgsql
-VOLATILE
+STABLE
 LEAKPROOF
 SECURITY DEFINER;
-ALTER FUNCTION wh_nagios.list_label(bigint) OWNER TO pgfactory;
+
+ALTER FUNCTION wh_nagios.list_label(bigint) OWNER TO opm;
 REVOKE ALL ON FUNCTION wh_nagios.list_label(bigint) FROM public;
-GRANT EXECUTE ON FUNCTION wh_nagios.list_label(bigint) TO pgf_roles;
+GRANT EXECUTE ON FUNCTION wh_nagios.list_label(bigint) TO opm_roles;
 
 /* wh_nagios.list_services()
 Return every wh_nagios.services%ROWTYPE
 
 @return : wh_nagios.services%ROWTYPE
 */
-CREATE OR REPLACE FUNCTION wh_nagios.list_services() RETURNS SETOF wh_nagios.services
+CREATE OR REPLACE FUNCTION wh_nagios.list_services()
+RETURNS SETOF wh_nagios.services
 AS $$
 DECLARE
 BEGIN
@@ -215,12 +225,12 @@ BEGIN
 END;
 $$
 LANGUAGE plpgsql
-VOLATILE
+STABLE
 LEAKPROOF
 SECURITY DEFINER;
-ALTER FUNCTION wh_nagios.list_services() OWNER TO pgfactory;
+ALTER FUNCTION wh_nagios.list_services() OWNER TO opm;
 REVOKE ALL ON FUNCTION wh_nagios.list_services() FROM public;
-GRANT EXECUTE ON FUNCTION wh_nagios.list_services() TO pgf_roles;
+GRANT EXECUTE ON FUNCTION wh_nagios.list_services() TO opm_roles;
 
 /* wh_nagios.dispatch_record(boolean)
 Dispatch records from wh_nagios.hub into counters_detail_$ID
@@ -246,7 +256,6 @@ DECLARE
 BEGIN
 /*
 TODO: Handle seracl
-
 */
     processed := 0;
     failed := 0;
@@ -441,7 +450,7 @@ TODO: Handle seracl
                         INSERT INTO wh_nagios.hub_reject (id, data,msg) VALUES (r_hub.id, r_hub.data, format(msg_err, SQLSTATE, SQLERRM));
                     END IF;
 
-                    -- We faile on the way for this one
+                    -- We fail on the way for this one
                     failed := failed + 1;
             END;
 
@@ -461,11 +470,11 @@ VOLATILE
 LEAKPROOF;
 
 ALTER FUNCTION wh_nagios.dispatch_record(boolean)
-    OWNER TO pgfactory;
+    OWNER TO opm;
 REVOKE ALL ON FUNCTION wh_nagios.dispatch_record(boolean)
     FROM public;
 GRANT EXECUTE ON FUNCTION wh_nagios.dispatch_record(boolean)
-    TO pgf_admins;
+    TO opm_admins;
 
 /* wh_nagios.cleanup_service(bigint,timestamptz)
 Aggregate all data by day in an array, to avoid space overhead. It also delete consecutive rows with same value between the two bounds.
@@ -516,7 +525,7 @@ BEGIN
                 v_counter := 1;
             ELSIF (NOT v_cursor_found OR v_current_value <> r_tmp.value) THEN
                 IF (v_counter>= 4) THEN
-                    RAISE DEBUG 'DELETE BETWEEN % and % on partition %, counter=%',v_start_range,v_previous_timet,v_partid,v_counter;
+                    RAISE DEBUG 'DELETE between % and % on partition %, counter=%',v_start_range,v_previous_timet,v_partid,v_counter;
                     EXECUTE 'DELETE FROM tmp WHERE timet > $1 AND timet < $2' USING v_start_range,v_previous_timet;
                 END IF;
                 EXIT WHEN NOT v_cursor_found;
@@ -531,7 +540,10 @@ BEGIN
 
         RAISE DEBUG 'truncate wh_nagios.%',v_partname;
         EXECUTE 'TRUNCATE wh_nagios.' || v_partname;
-        EXECUTE 'INSERT INTO wh_nagios.' || v_partname || ' SELECT date_trunc(''day'',timet),array_agg(row(timet,value)::wh_nagios.counters_detail) FROM tmp GROUP BY date_trunc(''day'',timet)';
+        EXECUTE 'INSERT INTO wh_nagios.' || v_partname|| '
+            SELECT date_trunc(''day'',timet),array_agg(row(timet,value)::wh_nagios.counters_detail)
+            FROM tmp
+            GROUP BY date_trunc(''day'',timet)';
         EXECUTE 'DROP TABLE tmp';
     END LOOP;
 
@@ -545,15 +557,15 @@ VOLATILE
 LEAKPROOF;
 
 ALTER FUNCTION wh_nagios.cleanup_service(bigint, timestamp with time zone)
-    OWNER TO pgfactory;
+    OWNER TO opm;
 REVOKE ALL ON FUNCTION wh_nagios.cleanup_service(bigint, timestamp with time zone)
     FROM public;
 GRANT EXECUTE ON FUNCTION wh_nagios.cleanup_service(bigint, timestamp with time zone)
-    TO pgf_admins;
+    TO opm_admins;
 
 CREATE FUNCTION wh_nagios.get_sampled_label_data(id_label bigint, timet_begin timestamp with time zone, timet_end timestamp with time zone, sample_sec integer)
-    RETURNS TABLE(timet timestamp with time zone, value numeric)
-    AS $$
+RETURNS TABLE(timet timestamp with time zone, value numeric)
+AS $$
 BEGIN
     IF (sample_sec > 0) THEN
         RETURN QUERY EXECUTE 'SELECT min(timet), max(value) FROM (SELECT (unnest(records)).* FROM wh_nagios.counters_detail_'||id_label||' where date_records >= $1 - ''1 day''::interval and date_records <= $2) as tmp WHERE timet >= $1 AND timet <= $2  group by (extract(epoch from timet)::float8/$3)::bigint*$3 ORDER BY 1' USING timet_begin,timet_end,sample_sec;
@@ -563,26 +575,29 @@ BEGIN
 END;
 $$
 LANGUAGE plpgsql
-VOLATILE
+STABLE
 LEAKPROOF;
 
 ALTER FUNCTION wh_nagios.get_sampled_label_data(bigint, timestamp with time zone, timestamp with time zone, integer)
-    OWNER TO pgfactory;
+    OWNER TO opm;
 REVOKE ALL ON FUNCTION wh_nagios.get_sampled_label_data(bigint, timestamp with time zone, timestamp with time zone, integer)
     FROM public;
 GRANT EXECUTE ON FUNCTION wh_nagios.get_sampled_label_data(bigint, timestamp with time zone, timestamp with time zone, integer)
-    TO pgf_roles;
+    TO opm_roles;
+
 
 CREATE FUNCTION wh_nagios.get_sampled_label_data(i_hostname text, i_service text, i_label text, timet_begin timestamp with time zone, timet_end timestamp with time zone, sample_sec integer)
-    RETURNS TABLE(timet timestamp with time zone, value numeric)
-    AS $$
+RETURNS TABLE(timet timestamp with time zone, value numeric)
+AS $$
 DECLARE
     v_id_label bigint;
 BEGIN
-    SELECT id INTO v_id_label FROM wh_nagios.services_label
+    SELECT id INTO v_id_label
+    FROM wh_nagios.services_label
     WHERE hostname = i_hostname
         AND service = i_service
         AND label = i_label;
+
     IF NOT FOUND THEN
         RETURN;
     ELSE
@@ -591,15 +606,15 @@ BEGIN
 END;
 $$
 LANGUAGE plpgsql
-VOLATILE
+STABLE
 LEAKPROOF;
 
 ALTER FUNCTION wh_nagios.get_sampled_label_data(text, text, text, timestamp with time zone, timestamp with time zone, integer)
-    OWNER TO pgfactory;
+    OWNER TO opm;
 REVOKE ALL ON FUNCTION wh_nagios.get_sampled_label_data(text, text, text, timestamp with time zone, timestamp with time zone, integer)
     FROM public;
 GRANT EXECUTE ON FUNCTION wh_nagios.get_sampled_label_data(text, text, text, timestamp with time zone, timestamp with time zone, integer)
-    TO pgf_roles;
+    TO opm_roles;
 
 
 /*
@@ -618,11 +633,13 @@ DECLARE
     v_context TEXT;
 BEGIN
 
-    /* verify that the give role exists */
-    rc := public.is_pgf_role(p_rolname);
+    /* verify that the given role exists */
+    rc := public.is_opm_role(p_rolname);
 
     IF NOT rc THEN
-        RAISE WARNING 'Given role ''%'' is not a PGFactory role!', p_rolname;
+        /* this is OK to explicitly raise that the role does not exists
+           as this function is granted to admins only anyway */
+        RAISE WARNING 'Given role ''%'' is not an OPM role!', p_rolname;
         RETURN;
     END IF;
 
@@ -659,9 +676,9 @@ VOLATILE
 LEAKPROOF
 SECURITY DEFINER;
 
-ALTER FUNCTION wh_nagios.grant_dispatcher(IN name, OUT boolean) OWNER TO pgfactory;
+ALTER FUNCTION wh_nagios.grant_dispatcher(IN name, OUT boolean) OWNER TO opm;
 REVOKE ALL ON FUNCTION wh_nagios.grant_dispatcher(IN name, OUT boolean) FROM public;
-GRANT ALL ON FUNCTION wh_nagios.grant_dispatcher(IN name, OUT boolean) TO pgf_admins;
+GRANT ALL ON FUNCTION wh_nagios.grant_dispatcher(IN name, OUT boolean) TO opm_admins;
 
 COMMENT ON FUNCTION wh_nagios.grant_dispatcher(IN name, OUT boolean)
     IS 'Grant a role to dispatch performance data in warehouse wh_nagios.';
@@ -671,8 +688,7 @@ wh_nagios.revoke_dispatcher(role)
 
 @return rc: state of the operation
  */
-CREATE OR REPLACE FUNCTION
-wh_nagios.revoke_dispatcher( IN p_rolname name, OUT rc boolean)
+CREATE OR REPLACE FUNCTION wh_nagios.revoke_dispatcher( IN p_rolname name, OUT rc boolean)
 AS $$
 DECLARE
     v_state   TEXT;
@@ -682,11 +698,13 @@ DECLARE
     v_context TEXT;
 BEGIN
 
-    /* verify that the give role exists */
-    rc := public.is_pgf_role(p_rolname);
+    /* verify that the given role exists */
+    rc := public.is_opm_role(p_rolname);
 
     IF NOT rc THEN
-        RAISE WARNING 'Given role ''%'' is not a PGFactory role!', p_rolname;
+        /* this is OK to explicitly raise that the role does not exists
+           as this function is granted to admins only anyway */
+        RAISE WARNING 'Given role ''%'' is not an OPM role!', p_rolname;
         RETURN;
     END IF;
 
@@ -723,9 +741,9 @@ VOLATILE
 LEAKPROOF
 SECURITY DEFINER;
 
-ALTER FUNCTION wh_nagios.revoke_dispatcher(IN name, OUT boolean) OWNER TO pgfactory;
+ALTER FUNCTION wh_nagios.revoke_dispatcher(IN name, OUT boolean) OWNER TO opm;
 REVOKE ALL ON FUNCTION wh_nagios.revoke_dispatcher(IN name, OUT boolean) FROM public;
-GRANT ALL ON FUNCTION wh_nagios.revoke_dispatcher(IN name, OUT boolean) TO pgf_admins;
+GRANT ALL ON FUNCTION wh_nagios.revoke_dispatcher(IN name, OUT boolean) TO opm_admins;
 
 COMMENT ON FUNCTION wh_nagios.revoke_dispatcher(IN name, OUT boolean)
     IS 'Revoke dispatch performance data from a role in wh_nagios.';
@@ -733,19 +751,24 @@ COMMENT ON FUNCTION wh_nagios.revoke_dispatcher(IN name, OUT boolean)
 
 --Automatically create a new partition when a service is added.
 CREATE OR REPLACE FUNCTION wh_nagios.create_partition_on_insert_label() RETURNS trigger
-    LANGUAGE plpgsql
-    AS $$
+LANGUAGE plpgsql
+AS $$
 DECLARE
     v_rolname name;
 BEGIN
     EXECUTE format('CREATE TABLE wh_nagios.counters_detail_%s (date_records date, records wh_nagios.counters_detail[])', NEW.id);
-    EXECUTE format('ALTER TABLE wh_nagios.counters_detail_%s OWNER TO pgfactory;', NEW.id);
-    EXECUTE format('REVOKE ALL ON TABLE wh_nagios.counters_detail_%s FROM public;', NEW.id);
+    EXECUTE format('ALTER TABLE wh_nagios.counters_detail_%s OWNER TO opm', NEW.id);
+    EXECUTE format('REVOKE ALL ON TABLE wh_nagios.counters_detail_%s FROM public', NEW.id);
 
-    SELECT rolname INTO v_rolname FROM public.list_servers() s1 JOIN wh_nagios.services s2 ON s2.id_server = s1.id WHERE s2.id = NEW.id_service ;
+    SELECT rolname INTO v_rolname
+    FROM public.list_servers() s1
+    JOIN wh_nagios.services s2 ON s2.id_server = s1.id
+    WHERE s2.id = NEW.id_service ;
+
     IF ( v_rolname IS NOT NULL) THEN
-        EXECUTE format('GRANT SELECT ON TABLE wh_nagios.counters_detail_%s TO %I;', NEW.id, v_rolname);
+        EXECUTE format('GRANT SELECT ON TABLE wh_nagios.counters_detail_%s TO %I', NEW.id, v_rolname);
     END IF;
+
     RETURN NEW;
 EXCEPTION
     WHEN duplicate_table THEN
@@ -754,14 +777,15 @@ EXCEPTION
 END;
 $$;
 
-ALTER FUNCTION wh_nagios.create_partition_on_insert_label() OWNER TO pgfactory;
+ALTER FUNCTION wh_nagios.create_partition_on_insert_label() OWNER TO opm;
 REVOKE ALL ON FUNCTION wh_nagios.create_partition_on_insert_label() FROM public;
-GRANT ALL ON FUNCTION wh_nagios.create_partition_on_insert_label() TO pgf_admins;
+GRANT ALL ON FUNCTION wh_nagios.create_partition_on_insert_label() TO opm_admins;
 
 --Automatically delete a partition when a service is removed.
-CREATE OR REPLACE FUNCTION wh_nagios.drop_partition_on_delete_label() RETURNS trigger
-    LANGUAGE plpgsql
-    AS $$
+CREATE OR REPLACE FUNCTION wh_nagios.drop_partition_on_delete_label()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
 BEGIN
     EXECUTE format('DROP TABLE wh_nagios.counters_detail_%s', OLD.id);
     RETURN NULL;
@@ -771,9 +795,9 @@ EXCEPTION
 END;
 $$;
 
-ALTER FUNCTION wh_nagios.drop_partition_on_delete_label() OWNER TO pgfactory;
+ALTER FUNCTION wh_nagios.drop_partition_on_delete_label() OWNER TO opm;
 REVOKE ALL ON FUNCTION wh_nagios.drop_partition_on_delete_label() FROM public;
-GRANT ALL ON FUNCTION wh_nagios.drop_partition_on_delete_label() TO pgf_admins;
+GRANT ALL ON FUNCTION wh_nagios.drop_partition_on_delete_label() TO opm_admins;
 
 CREATE TRIGGER create_partition_on_insert_service
     BEFORE INSERT ON wh_nagios.labels

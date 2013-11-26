@@ -1,8 +1,8 @@
 # wh_nagios extension
-comment = 'Nagios warehouse for pgFactory'
+comment = 'Nagios warehouse for OPM'
 default_version = '1.0'
 module_pathname = '$libdir/wh_nagios'
-requires = 'pgfactory_core, hstore'
+requires = 'opm_core, hstore'
 superuser = false
 relocatable = false
 schema = 'wh_nagios'
