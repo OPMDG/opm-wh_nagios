@@ -513,14 +513,14 @@ BEGIN
         RETURN false;
     END IF;
     FOR v_partid IN SELECT id FROM wh_nagios.labels WHERE id_service = p_serviceid LOOP
-        v_partname := 'counters_detail_' || v_partid;
+        v_partname := format('counters_detail_%s', v_partid);
 
-        EXECUTE 'LOCK TABLE wh_nagios.' || v_partname;
+        EXECUTE format('LOCK TABLE wh_nagios.%I', v_partname);
         EXECUTE 'CREATE TEMP TABLE tmp AS SELECT (unnest(records)).* FROM wh_nagios.'|| v_partname;
 
         SELECT min(timet),max(timet) INTO v_oldest,v_newest FROM tmp;
 
-        OPEN c_tmp FOR EXECUTE 'SELECT timet,value FROM tmp WHERE timet >= ' || quote_literal(v_previous_cleanup) || ' AND timet <= ' || quote_literal(p_max_timestamp) || ' ORDER BY timet';
+        OPEN c_tmp FOR EXECUTE format('SELECT timet,value FROM tmp WHERE timet >= %L AND timet <= %L ORDER BY timet', v_previous_cleanup, p_max_timestamp);
         LOOP
             FETCH c_tmp INTO r_tmp;
             v_cursor_found := FOUND;
@@ -545,11 +545,11 @@ BEGIN
         CLOSE c_tmp;
 
         RAISE DEBUG 'truncate wh_nagios.%',v_partname;
-        EXECUTE 'TRUNCATE wh_nagios.' || v_partname;
-        EXECUTE 'INSERT INTO wh_nagios.' || v_partname|| '
+        EXECUTE format('TRUNCATE wh_nagios.%I', v_partname);
+        EXECUTE format('INSERT INTO wh_nagios.%I
             SELECT date_trunc(''day'',timet),array_agg(row(timet,value)::wh_nagios.counters_detail)
             FROM tmp
-            GROUP BY date_trunc(''day'',timet)';
+            GROUP BY date_trunc(''day'',timet)',v_partname);
         EXECUTE 'DROP TABLE tmp';
     END LOOP;
 
@@ -574,9 +574,9 @@ RETURNS TABLE(timet timestamp with time zone, value numeric)
 AS $$
 BEGIN
     IF (sample_sec > 0) THEN
-        RETURN QUERY EXECUTE 'SELECT min(timet), max(value) FROM (SELECT (unnest(records)).* FROM wh_nagios.counters_detail_'||id_label||' where date_records >= $1 - ''1 day''::interval and date_records <= $2) as tmp WHERE timet >= $1 AND timet <= $2  group by (extract(epoch from timet)::float8/$3)::bigint*$3 ORDER BY 1' USING timet_begin,timet_end,sample_sec;
+        RETURN QUERY EXECUTE format('SELECT min(timet), max(value) FROM (SELECT (unnest(records)).* FROM wh_nagios.counters_detail_%s where date_records >= $1 - ''1 day''::interval and date_records <= $2) as tmp WHERE timet >= $1 AND timet <= $2  group by (extract(epoch from timet)::float8/$3)::bigint*$3 ORDER BY 1', id_label) USING timet_begin,timet_end,sample_sec;
     ELSE
-        RETURN QUERY EXECUTE 'SELECT min(timet), max(value) FROM (SELECT (unnest(records)).* FROM wh_nagios.counters_detail_'||id_label||' where date_records >= $1 - ''1 day''::interval and date_records <= $2) as tmp WHERE timet >= $1 AND timet <= $2 ORDER BY 1' USING timet_begin,timet_end;
+        RETURN QUERY EXECUTE format('SELECT min(timet), max(value) FROM (SELECT (unnest(records)).* FROM wh_nagios.counters_detail_%s where date_records >= $1 - ''1 day''::interval and date_records <= $2) as tmp WHERE timet >= $1 AND timet <= $2 ORDER BY 1', id_label) USING timet_begin,timet_end;
     END IF;
 END;
 $$
