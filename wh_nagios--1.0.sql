@@ -190,7 +190,7 @@ RETURNS TABLE (id_label bigint, label text, unit text, min numeric,
 AS $$
 DECLARE
 BEGIN
-    IF pg_has_role(session_user, 'opm_admins', 'MEMBER') THEN
+    IF is_admin(session_user) THEN
         RETURN QUERY SELECT l.id, l.label, l.unit, l.min, l.max, l.critical, l.warning
             FROM wh_nagios.labels l
             JOIN wh_nagios.services s
