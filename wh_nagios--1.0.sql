@@ -10,6 +10,7 @@ SET statement_timeout TO 0;
 
 ALTER SCHEMA wh_nagios OWNER TO opm;
 REVOKE ALL ON SCHEMA wh_nagios FROM public;
+GRANT USAGE ON SCHEMA wh_nagios TO opm_roles;
 
 CREATE TYPE wh_nagios.counters_detail AS (
     timet timestamp with time zone,
