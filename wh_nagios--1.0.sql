@@ -4,7 +4,7 @@
 SET statement_timeout TO 0;
 
 ALTER SCHEMA wh_nagios OWNER TO opm;
-GRANT USAGE ON SCHEMA wh_nagios TO opm_roles;
+REVOKE ALL ON SCHEMA wh_nagios FROM public;
 
 CREATE TYPE wh_nagios.counters_detail AS (
     timet timestamp with time zone,
@@ -708,9 +708,8 @@ BEGIN
         RETURN;
     END IF;
 
-    EXECUTE format('REVOKE USAGE ON SCHEMA wh_nagios FROM %I', p_rolname);
-    EXECUTE format('REVOKE USAGE ON SEQUENCE wh_nagios.hub_id_seq FROM %I', p_rolname);
-    EXECUTE format('REVOKE INSERT ON TABLE wh_nagios.hub FROM %I', p_rolname);
+    EXECUTE format('REVOKE ALL ON SEQUENCE wh_nagios.hub_id_seq FROM %I', p_rolname);
+    EXECUTE format('REVOKE ALL ON TABLE wh_nagios.hub FROM %I', p_rolname);
 
     RAISE NOTICE 'REVOKED';
 
