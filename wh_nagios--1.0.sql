@@ -42,6 +42,9 @@ INHERITS (public.services);
 
 ALTER TABLE wh_nagios.services OWNER TO opm;
 ALTER TABLE wh_nagios.services ADD PRIMARY KEY (id);
+ALTER TABLE wh_nagios.services ADD CONSTRAINT wh_nagios_services_id_server_fk
+    FOREIGN KEY (id_server)
+    REFERENCES public.servers (id) ON UPDATE CASCADE ON DELETE CASCADE;
 CREATE UNIQUE INDEX idx_wh_nagios_services_id_server_service
     ON wh_nagios.services USING btree (id_server,service);
 REVOKE ALL ON TABLE wh_nagios.services FROM public ;
