@@ -26,7 +26,7 @@ ALTER TABLE wh_nagios.hub OWNER TO opm;
 REVOKE ALL ON TABLE wh_nagios.hub FROM public;
 
 CREATE TABLE wh_nagios.hub_reject (
-    id bigserial,
+    id bigserial NOT NULL,
     data text[],
     msg text
 );
@@ -35,7 +35,7 @@ REVOKE ALL ON TABLE wh_nagios.hub_reject FROM public;
 
 CREATE TABLE wh_nagios.services (
     state            text,
-    oldest_record    timestamptz DEFAULT now(),
+    oldest_record    timestamptz NOT NULL DEFAULT now(),
     newest_record    timestamptz
 )
 INHERITS (public.services);
