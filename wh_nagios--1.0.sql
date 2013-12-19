@@ -494,7 +494,7 @@ TODO: Handle seracl
 
 
                 IF (servicesrow IS NOT NULL AND servicesrow.last_cleanup < now() - '10 days'::interval) THEN
-                    PERFORM wh_nagios.cleanup_service(servicesrow.id,now()- '7 days'::interval) ;
+                    PERFORM wh_nagios.cleanup_service(servicesrow.id) ;
                 END IF ;
 
 
@@ -551,34 +551,25 @@ If a row concerns a non-existent server, it will create it without owner, so tha
 had a cleanup for more than 10 days, it will perform a cleanup for it. If called with "true", it will log in the table "wh_nagios.hub_reject" all
 rows that couldn''t be dispatched, with the exception message.' ;
 
-/* wh_nagios.cleanup_service(bigint,timestamptz)
-Aggregate all data by day in an array, to avoid space overhead. It also delete consecutive rows with same value between the two bounds.
+/* wh_nagios.cleanup_service(bigint)
+Aggregate all data by day in an array, to avoid space overhead and benefit TOAST compression.
 This will be done for every label corresponding to the service.
 
 @p_serviceid: ID of service to cleanup.
-@p_max_timestamp: Use to specify which rows to analyze for deleting. Will happen between last_cleanup and this parameter.
 @return : true if everything went well.
 */
-CREATE OR REPLACE FUNCTION cleanup_service(p_serviceid bigint, p_max_timestamp timestamp with time zone)
+CREATE OR REPLACE FUNCTION cleanup_service(p_serviceid bigint)
     RETURNS boolean
     AS $$
 DECLARE
-  c_tmp refcursor ;
-  r_tmp record ;
+  v_servicefound boolean ;
   v_partid bigint ;
-  v_current_value numeric ;
-  v_start_range timestamptz ;
   v_partname text ;
-  v_previous_timet timestamptz ;
-  v_counter integer ;
-  v_previous_cleanup timestamptz ;
-  v_cursor_found boolean ;
   v_oldest timestamptz ;
   v_newest timestamptz ;
 BEGIN
-    SELECT last_cleanup INTO v_previous_cleanup FROM wh_nagios.services WHERE id = p_serviceid ;
-
-    IF NOT FOUND THEN
+    SELECT ( COUNT(*) = 1 ) INTO v_servicefound FROM wh_nagios.services WHERE id = p_serviceid;
+    IF NOT v_servicefound THEN
         RETURN false ;
     END IF ;
     FOR v_partid IN SELECT id FROM wh_nagios.labels WHERE id_service = p_serviceid LOOP
@@ -589,30 +580,6 @@ BEGIN
 
         SELECT min(timet),max(timet) INTO v_oldest,v_newest FROM tmp ;
 
-        OPEN c_tmp FOR EXECUTE format('SELECT timet,value FROM tmp WHERE timet >= %L AND timet <= %L ORDER BY timet', v_previous_cleanup, p_max_timestamp) ;
-        LOOP
-            FETCH c_tmp INTO r_tmp ;
-            v_cursor_found := FOUND ;
-            v_counter := v_counter+1 ;
-            IF (v_cursor_found AND v_current_value IS NULL) THEN
-                v_current_value := r_tmp.value ;
-                v_start_range := r_tmp.timet ;
-                v_counter := 1 ;
-            ELSIF (NOT v_cursor_found OR v_current_value <> r_tmp.value) THEN
-                IF (v_counter>= 4) THEN
-                    RAISE DEBUG 'DELETE between % and % on partition %, counter=%',v_start_range,v_previous_timet,v_partid,v_counter ;
-                    EXECUTE 'DELETE FROM tmp WHERE timet > $1 AND timet < $2' USING v_start_range,v_previous_timet ;
-                END IF ;
-                EXIT WHEN NOT v_cursor_found ;
-
-                v_start_range := r_tmp.timet ;
-                v_current_value := r_tmp.value ;
-                v_counter := 1 ;
-            END IF ;
-            v_previous_timet := r_tmp.timet ;
-        END LOOP ;
-        CLOSE c_tmp ;
-
         RAISE DEBUG 'truncate wh_nagios.%',v_partname ;
         EXECUTE format('TRUNCATE wh_nagios.%I', v_partname) ;
         EXECUTE format('INSERT INTO wh_nagios.%I
@@ -622,7 +589,7 @@ BEGIN
         EXECUTE 'DROP TABLE tmp' ;
     END LOOP ;
 
-    UPDATE wh_nagios.services SET last_cleanup = p_max_timestamp, oldest_record = v_oldest, newest_record = v_newest
+    UPDATE wh_nagios.services SET last_cleanup = now(), oldest_record = v_oldest, newest_record = v_newest
         WHERE id = p_serviceid ;
     RETURN true ;
 END ;
@@ -631,13 +598,13 @@ LANGUAGE plpgsql
 VOLATILE
 LEAKPROOF ;
 
-ALTER FUNCTION wh_nagios.cleanup_service(bigint, timestamp with time zone)
+ALTER FUNCTION wh_nagios.cleanup_service(bigint)
     OWNER TO opm ;
-REVOKE ALL ON FUNCTION wh_nagios.cleanup_service(bigint, timestamp with time zone)
+REVOKE ALL ON FUNCTION wh_nagios.cleanup_service(bigint)
     FROM public ;
-GRANT EXECUTE ON FUNCTION wh_nagios.cleanup_service(bigint, timestamp with time zone)
+GRANT EXECUTE ON FUNCTION wh_nagios.cleanup_service(bigint)
     TO opm_admins ;
-COMMENT ON FUNCTION wh_nagios.cleanup_service(bigint, timestamp with time zone) IS 'Aggregate all data by day in an array, to avoid space overhead. It also delete consecutive rows with same value between the two bounds.
+COMMENT ON FUNCTION wh_nagios.cleanup_service(bigint) IS 'Aggregate all data by day in an array, to avoid space overhead and benefit TOAST compression.
 This will be done for every label corresponding to the service.' ;
 
 
