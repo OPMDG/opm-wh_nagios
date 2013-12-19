@@ -493,7 +493,7 @@ TODO: Handle seracl
                 END IF ;
 
 
-                IF (servicesrow IS NOT NULL AND servicesrow.last_cleanup < now() - '10 days'::interval) THEN
+                IF (servicesrow.id IS NOT NULL AND servicesrow.last_cleanup < now() - '10 days'::interval) THEN
                     PERFORM wh_nagios.cleanup_service(servicesrow.id) ;
                 END IF ;
 
