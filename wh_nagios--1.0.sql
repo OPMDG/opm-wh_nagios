@@ -803,6 +803,7 @@ DECLARE
     v_rolname name ;
 BEGIN
     EXECUTE format('CREATE TABLE wh_nagios.counters_detail_%s (date_records date, records wh_nagios.counters_detail[])', NEW.id) ;
+    EXECUTE format('CREATE INDEX ON wh_nagios.counters_detail_%s USING btree(date_records)', NEW.id) ;
     EXECUTE format('ALTER TABLE wh_nagios.counters_detail_%s OWNER TO opm', NEW.id) ;
     EXECUTE format('REVOKE ALL ON TABLE wh_nagios.counters_detail_%s FROM public', NEW.id) ;
 
