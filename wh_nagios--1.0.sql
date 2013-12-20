@@ -439,13 +439,13 @@ TODO: Handle seracl
                 --Do we need to update the service ?
                 IF ( (servicesrow.last_modified + '1 day'::interval < CURRENT_DATE)
                     OR ( (cur->'servicestate') IS NOT NULL AND (servicesrow.state <> (cur->'servicestate') OR servicesrow.state IS NULL) )
-                    OR ( servicesrow.newest_record +'5 minutes'::interval < now() )
+                    OR ( servicesrow.newest_record +'5 minutes'::interval < now() ) or ( servicesrow.newest_record IS NULL )
                 ) THEN
                     msg_err := 'Error during UPDATE on wh_nagios.services: %L - %L' ;
 
                     EXECUTE format('UPDATE wh_nagios.services SET last_modified = CURRENT_DATE,
                             state = %L,
-                            newest_record= timestamp with time zone ''epoch'' +%L * INTERVAL ''1 second''
+                            newest_record = greatest(newest_record, timestamp with time zone ''epoch'' +%L * INTERVAL ''1 second'')
                         WHERE id = %s',
                         cur->'servicestate',
                         cur->'timet',
@@ -565,8 +565,6 @@ DECLARE
   v_servicefound boolean ;
   v_partid bigint ;
   v_partname text ;
-  v_oldest timestamptz ;
-  v_newest timestamptz ;
 BEGIN
     SELECT ( COUNT(*) = 1 ) INTO v_servicefound FROM wh_nagios.services WHERE id = p_serviceid;
     IF NOT v_servicefound THEN
@@ -575,22 +573,27 @@ BEGIN
     FOR v_partid IN SELECT id FROM wh_nagios.labels WHERE id_service = p_serviceid LOOP
         v_partname := format('counters_detail_%s', v_partid) ;
 
-        EXECUTE format('LOCK TABLE wh_nagios.%I', v_partname) ;
-        EXECUTE 'CREATE TEMP TABLE tmp AS SELECT (unnest(records)).* FROM wh_nagios.'|| v_partname ;
-
-        SELECT min(timet),max(timet) INTO v_oldest,v_newest FROM tmp ;
-
-        RAISE DEBUG 'truncate wh_nagios.%',v_partname ;
-        EXECUTE format('TRUNCATE wh_nagios.%I', v_partname) ;
-        EXECUTE format('INSERT INTO wh_nagios.%I
-            SELECT date_trunc(''day'',timet),array_agg(row(timet,value)::wh_nagios.counters_detail)
-            FROM tmp
-            GROUP BY date_trunc(''day'',timet)',v_partname) ;
-        EXECUTE 'DROP TABLE tmp' ;
+        EXECUTE format('WITH list AS (SELECT date_records
+                FROM wh_nagios.%I
+                GROUP BY date_records
+                HAVING COUNT(*) > 1
+            ),
+            del AS (DELETE FROM wh_nagios.%I c
+                USING list l WHERE c.date_records = l.date_records
+                RETURNING *
+            ),
+            rec AS (SELECT date_records, (unnest(cd.records)).*
+                FROM list l
+                JOIN wh_nagios.%I cd USING (date_records)
+            )
+            INSERT INTO wh_nagios.%I
+            SELECT date_records, array_agg(row(timet,value)::wh_nagios.counters_detail)
+            FROM rec
+            GROUP BY date_records;
+        ', v_partname, v_partname, v_partname, v_partname);
     END LOOP ;
+    UPDATE wh_nagios.services SET last_cleanup = now() WHERE id = p_serviceid ;
 
-    UPDATE wh_nagios.services SET last_cleanup = now(), oldest_record = v_oldest, newest_record = v_newest
-        WHERE id = p_serviceid ;
     RETURN true ;
 END ;
 $$
