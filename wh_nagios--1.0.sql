@@ -323,6 +323,7 @@ DECLARE
     servicesrow wh_nagios.services%ROWTYPE ;
     labelsrow wh_nagios.labels%ROWTYPE ;
     serversrow public.servers%ROWTYPE ;
+    updates hstore[2] ;
 BEGIN
 /*
 TODO: Handle seracl
@@ -436,22 +437,25 @@ TODO: Handle seracl
                         WHERE id = $1',(cur->'timet')) USING servicesrow.id ;
                 END IF ;
 
-                --Do we need to update the service ?
-                IF ( (servicesrow.last_modified + '1 day'::interval < CURRENT_DATE)
-                    OR ( (cur->'servicestate') IS NOT NULL AND (servicesrow.state <> (cur->'servicestate') OR servicesrow.state IS NULL) )
-                    OR ( servicesrow.newest_record +'5 minutes'::interval < now() ) or ( servicesrow.newest_record IS NULL )
-                ) THEN
-                    msg_err := 'Error during UPDATE on wh_nagios.services: %L - %L' ;
-
-                    EXECUTE format('UPDATE wh_nagios.services SET last_modified = CURRENT_DATE,
-                            state = %L,
-                            newest_record = greatest(newest_record, timestamp with time zone ''epoch'' +%L * INTERVAL ''1 second'')
-                        WHERE id = %s',
-                        cur->'servicestate',
-                        cur->'timet',
-                        servicesrow.id) ;
-                END IF ;
-
+                -- Store services informations to update them once per batch
+                msg_err := 'Error during service statistics collect: %L - %L' ;
+                IF ( updates[0] IS NULL ) THEN
+                    -- initialize arrays
+                    updates[0] := hstore(servicesrow.id::text,cur->'timet') ;
+                    updates[1] := hstore(servicesrow.id::text,cur->'servicestate') ;
+                END IF;
+                IF ( ( updates[0]->(servicesrow.id)::text ) IS NULL ) THEN
+                    -- new service found in hstore
+                    updates[0] := updates[0] || hstore(servicesrow.id::text,cur->'timet') ;
+                    updates[1] := updates[1] || hstore(servicesrow.id::text,cur->'servicestate') ;
+                ELSE
+                    -- service exists in hstore
+                    IF ( ( updates[0]->(servicesrow.id)::text )::bigint < (cur->'timet')::bigint ) THEN
+                        -- update the timet and state to the latest values
+                        updates[0] := updates[0] || hstore(servicesrow.id::text,cur->'timet') ;
+                        updates[1] := updates[1] || hstore(servicesrow.id::text,cur->'servicestate') ;
+                    END IF;
+                END IF;
 
                 --Does the label exists ?
                 SELECT l.* INTO labelsrow
@@ -527,6 +531,19 @@ TODO: Handle seracl
             --Delete current line (processed or failed)
             DELETE FROM wh_nagios.hub WHERE CURRENT OF c_hub ;
         END LOOP ;
+
+        --Update the services, if needed
+        FOR r_hub IN SELECT * FROM each(updates[0]) LOOP
+            EXECUTE format('UPDATE wh_nagios.services SET last_modified = CURRENT_DATE,
+              state = %L,
+              newest_record = timestamp with time zone ''epoch'' +%L * INTERVAL ''1 second''
+              WHERE id = %s
+              AND ( newest_record IS NULL OR newest_record < timestamp with time zone ''epoch'' +%L * INTERVAL ''1 second'' )',
+              updates[1]->r_hub.key,
+              r_hub.value,
+              r_hub.key,
+              r_hub.value ) ;
+        END LOOP;
     EXCEPTION
         WHEN lock_not_available THEN
             --Have frendlier exception if concurrent function already running
