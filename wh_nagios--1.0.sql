@@ -24,6 +24,7 @@ COMMENT ON COLUMN wh_nagios.counters_detail.value IS 'Value of perfdata' ;
 
 CREATE TABLE wh_nagios.hub (
     id bigserial,
+    rolname name NOT NULL default current_user,
     data text[]
 ) ;
 ALTER TABLE wh_nagios.hub OWNER TO opm ;
@@ -32,11 +33,13 @@ COMMENT ON TABLE wh_nagios.hub IS 'Store raw perfdata from dispatchers. Those
 data will be processed asynchronously by stored function wh_nagios.dispatch_record().
 This table doesn''t have a primary key.' ;
 COMMENT ON COLUMN wh_nagios.hub.id IS 'Batch identifier of the data importation.' ;
+COMMENT ON COLUMN wh_nagios.hub.rolname IS 'User who inserted data.' ;
 COMMENT ON COLUMN wh_nagios.hub.data IS 'Raw data as sent by dispatchers.' ;
 
 
 CREATE TABLE wh_nagios.hub_reject (
     id bigserial NOT NULL,
+    rolname name NOT NULL,
     data text[],
     msg text
 ) ;
@@ -46,6 +49,7 @@ COMMENT ON TABLE wh_nagios.hub_reject IS 'Store hub lines rejected by the
 stored function wh_nagios.dispatch_record(), if it''s asked to log them.
 This table doesn''t have a primary key.' ;
 COMMENT ON COLUMN wh_nagios.hub_reject.id IS 'Batch identifier of failed data importation.' ;
+COMMENT ON COLUMN wh_nagios.hub_reject.rolname IS 'User who inserted failed data.' ;
 COMMENT ON COLUMN wh_nagios.hub_reject.data IS 'Raw data as sent by dispatchers.' ;
 COMMENT ON COLUMN wh_nagios.hub_reject.msg IS 'Error message sent from wh_nagios.dispatch_record().' ;
 
@@ -351,7 +355,7 @@ TODO: Handle seracl
                         msg_err := COALESCE(msg_err || ',','') || 'number of parameter not even' ;
                     END IF ;
 
-                    INSERT INTO wh_nagios.hub_reject (id, data,msg) VALUES (r_hub.id, r_hub.data, msg_err) ;
+                    INSERT INTO wh_nagios.hub_reject (id, rolname, data,msg) VALUES (r_hub.id, r_hub.rolname, r_hub.data, msg_err) ;
                 END IF ;
 
                 failed := failed + 1 ;
@@ -400,7 +404,7 @@ TODO: Handle seracl
                         msg_err := COALESCE(msg_err || ',','') || 'value required' ;
                     END IF ;
 
-                    INSERT INTO wh_nagios.hub_reject (id, data,msg) VALUES (r_hub.id, r_hub.data, msg_err) ;
+                    INSERT INTO wh_nagios.hub_reject (id, rolname, data, msg) VALUES (r_hub.id, r_hub.rolname, r_hub.data, msg_err) ;
                 END IF ;
 
                 failed := failed + 1 ;
@@ -523,7 +527,7 @@ TODO: Handle seracl
             EXCEPTION
                 WHEN OTHERS THEN
                     IF (log_error = TRUE) THEN
-                        INSERT INTO wh_nagios.hub_reject (id, data,msg) VALUES (r_hub.id, r_hub.data, format(msg_err, SQLSTATE, SQLERRM)) ;
+                        INSERT INTO wh_nagios.hub_reject (id, rolname, data, msg) VALUES (r_hub.id, r_hub.rolname, r_hub.data, format(msg_err, SQLSTATE, SQLERRM)) ;
                     END IF ;
 
                     -- We fail on the way for this one
