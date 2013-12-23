@@ -29,21 +29,23 @@ CREATE TABLE wh_nagios.hub (
 ALTER TABLE wh_nagios.hub OWNER TO opm ;
 REVOKE ALL ON TABLE wh_nagios.hub FROM public ;
 COMMENT ON TABLE wh_nagios.hub IS 'Store raw perfdata from dispatchers. Those
-data will be processed asynchronously by stored function wh_nagios.dispatch_record().' ;
-COMMENT ON COLUMN wh_nagios.hub.id IS 'Technical key to identify a row. Is the primary key of the table wh_nagios.hub' ;
+data will be processed asynchronously by stored function wh_nagios.dispatch_record().
+This table doesn''t have a primary key.' ;
+COMMENT ON COLUMN wh_nagios.hub.id IS 'Batch identifier of the data importation.' ;
 COMMENT ON COLUMN wh_nagios.hub.data IS 'Raw data as sent by dispatchers.' ;
 
 
 CREATE TABLE wh_nagios.hub_reject (
-        id bigserial NOT NULL,
+    id bigserial NOT NULL,
     data text[],
     msg text
 ) ;
 ALTER TABLE wh_nagios.hub_reject OWNER TO opm ;
 REVOKE ALL ON TABLE wh_nagios.hub_reject FROM public ;
 COMMENT ON TABLE wh_nagios.hub_reject IS 'Store hub lines rejected by the
-stored function wh_nagios.dispatch_record(), if it''s asked to log them.' ;
-COMMENT ON COLUMN wh_nagios.hub_reject.id IS 'Technical key to identify a row. Is the primary key of the table wh_nagios.hub_reject' ;
+stored function wh_nagios.dispatch_record(), if it''s asked to log them.
+This table doesn''t have a primary key.' ;
+COMMENT ON COLUMN wh_nagios.hub_reject.id IS 'Batch identifier of failed data importation.' ;
 COMMENT ON COLUMN wh_nagios.hub_reject.data IS 'Raw data as sent by dispatchers.' ;
 COMMENT ON COLUMN wh_nagios.hub_reject.msg IS 'Error message sent from wh_nagios.dispatch_record().' ;
 
@@ -138,7 +140,7 @@ COMMENT ON COLUMN wh_nagios.services_labels.unit IS 'Unit of the label.' ;
 
 SELECT pg_catalog.pg_extension_config_dump('wh_nagios.services', '') ;
 SELECT pg_catalog.pg_extension_config_dump('wh_nagios.labels', '') ;
-SELECT pg_catalog.pg_extension_config_dump('wh_nagios.labels_id_seq', ''); 
+SELECT pg_catalog.pg_extension_config_dump('wh_nagios.labels_id_seq', '');
 
 /*
 public.grant_service(service, role)
