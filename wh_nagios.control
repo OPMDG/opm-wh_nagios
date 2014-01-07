@@ -1,6 +1,6 @@
 # wh_nagios extension
 comment = 'Nagios warehouse for OPM'
-default_version = '1.0'
+default_version = '1.1'
 module_pathname = '$libdir/wh_nagios'
 requires = 'opm_core, hstore'
 superuser = false
