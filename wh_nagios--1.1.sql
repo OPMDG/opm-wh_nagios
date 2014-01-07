@@ -308,7 +308,7 @@ GRANT EXECUTE ON FUNCTION wh_nagios.list_services() TO opm_roles ;
 
 COMMENT ON FUNCTION wh_nagios.list_services() IS 'Return all services a user is allowed to see.' ;
 
-/* wh_nagios.dispatch_record(boolean)
+/* wh_nagios.dispatch_record(boolean, integer)
 Dispatch records from wh_nagios.hub into counters_detail_$ID
 
 $ID is found in wh_nagios.services_label and wh_nagios.services, with correct hostname,servicedesc and label
@@ -316,12 +316,12 @@ $ID is found in wh_nagios.services_label and wh_nagios.services, with correct ho
 @log_error: If true, will report errors and details in wh_nagios.hub_reject
 @return : true if everything went well.
 */
-CREATE OR REPLACE FUNCTION wh_nagios.dispatch_record(log_error boolean DEFAULT false, OUT processed bigint, OUT failed bigint)
+CREATE OR REPLACE FUNCTION wh_nagios.dispatch_record(num_lines integer DEFAULT 5000, log_error boolean DEFAULT false, OUT processed bigint, OUT failed bigint)
     AS $$
 DECLARE
     --Select current lines and lock them so then can be deleted
     --Use NOWAIT so there can't be two concurrent processes
-    c_hub CURSOR FOR SELECT * FROM wh_nagios.hub LIMIT 50000 FOR UPDATE NOWAIT ;
+    c_hub CURSOR FOR SELECT * FROM wh_nagios.hub LIMIT num_lines FOR UPDATE NOWAIT ;
     r_hub record ;
     i integer ;
     cur hstore ;
@@ -562,14 +562,14 @@ LANGUAGE plpgsql
 VOLATILE
 LEAKPROOF ;
 
-ALTER FUNCTION wh_nagios.dispatch_record(boolean)
+ALTER FUNCTION wh_nagios.dispatch_record(integer, boolean)
     OWNER TO opm ;
-REVOKE ALL ON FUNCTION wh_nagios.dispatch_record(boolean)
+REVOKE ALL ON FUNCTION wh_nagios.dispatch_record(integer, boolean)
     FROM public ;
-GRANT EXECUTE ON FUNCTION wh_nagios.dispatch_record(boolean)
+GRANT EXECUTE ON FUNCTION wh_nagios.dispatch_record(integer, boolean)
     TO opm_admins ;
 
-COMMENT ON FUNCTION wh_nagios.dispatch_record(boolean) IS 'Parse and dispatch all rows in wh_nagios.hub into the good counters_detail_X partition.
+COMMENT ON FUNCTION wh_nagios.dispatch_record(integer, boolean) IS 'Parse and dispatch all rows in wh_nagios.hub into the good counters_detail_X partition.
 If a row concerns a non-existent server, it will create it without owner, so that only admins can see it. If a row concerns a service that didn''t
 had a cleanup for more than 10 days, it will perform a cleanup for it. If called with "true", it will log in the table "wh_nagios.hub_reject" all
 rows that couldn''t be dispatched, with the exception message.' ;
