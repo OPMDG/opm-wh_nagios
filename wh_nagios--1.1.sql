@@ -639,6 +639,76 @@ GRANT EXECUTE ON FUNCTION wh_nagios.cleanup_service(bigint)
 COMMENT ON FUNCTION wh_nagios.cleanup_service(bigint) IS 'Aggregate all data by day in an array, to avoid space overhead and benefit TOAST compression.
 This will be done for every label corresponding to the service.' ;
 
+/* wh_nagios.purge_services(VARIADIC bigint[])
+Delete records older than max(date_records) - service.servalid. Doesn't delete
+any data if servalid IS NULL
+
+@p_serviceid: ID's of service to purge. All services if null.
+@return : number of services purged.
+*/
+CREATE OR REPLACE FUNCTION purge_services(VARIADIC p_servicesid bigint[] = NULL)
+    RETURNS bigint
+    AS $$
+DECLARE
+  i bigint ;
+  v_allservices bigint[];
+  v_serviceid bigint;
+  v_servicefound boolean ;
+  v_partid bigint ;
+  v_partname text ;
+  v_servalid interval;
+  v_ret bigint;
+BEGIN
+    v_ret := 0 ;
+    IF ( p_servicesid IS NULL ) THEN
+        SELECT array_agg(id) INTO v_allservices FROM wh_nagios.services WHERE servalid IS NOT NULL;
+    ELSE
+        v_allservices := p_servicesid;
+    END IF;
+
+    IF ( v_allservices IS NULL ) THEN
+        return v_ret;
+    END IF;
+
+    FOR i IN 1..array_upper(v_allservices, 1) LOOP
+        v_serviceid := v_allservices[i];
+        SELECT ( COUNT(*) = 1 ) INTO v_servicefound FROM wh_nagios.services WHERE id = v_serviceid AND servalid IS NOT NULL  ;
+        IF v_servicefound THEN
+            v_ret := v_ret + 1 ;
+
+            SELECT servalid INTO STRICT v_servalid FROM wh_nagios.services WHERE id = v_serviceid ;
+
+            FOR v_partid IN SELECT id FROM wh_nagios.labels WHERE id_service = v_serviceid LOOP
+                v_partname := format('counters_detail_%s', v_partid) ;
+
+                EXECUTE format('WITH m as ( SELECT max(date_records) as max
+                        FROM wh_nagios.%I
+                        )
+
+                    DELETE
+                    FROM wh_nagios.%I c
+                    USING m
+                    WHERE age(m.max, c.date_records) >= %L::interval;
+                ', v_partname, v_partname, v_servalid);
+            END LOOP ;
+        END IF ;
+    END LOOP;
+
+    RETURN v_ret ;
+END ;
+$$
+LANGUAGE plpgsql
+VOLATILE
+LEAKPROOF ;
+
+ALTER FUNCTION wh_nagios.purge_services(VARIADIC bigint[])
+    OWNER TO opm ;
+REVOKE ALL ON FUNCTION wh_nagios.purge_services(VARIADIC bigint[])
+    FROM public ;
+GRANT EXECUTE ON FUNCTION wh_nagios.purge_services(VARIADIC bigint[])
+    TO opm_admins ;
+COMMENT ON FUNCTION wh_nagios.purge_services(VARIADIC bigint[]) IS 'Delete data older than retention interval.
+The age is calculated from newest_record, not server date.' ;
 
 CREATE FUNCTION wh_nagios.get_sampled_label_data(id_label bigint, timet_begin timestamp with time zone, timet_end timestamp with time zone, sample_sec integer)
 RETURNS TABLE(timet timestamp with time zone, value numeric)
