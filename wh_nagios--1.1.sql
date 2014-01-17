@@ -658,6 +658,8 @@ DECLARE
   v_partname text ;
   v_servalid interval;
   v_ret bigint;
+  v_oldest timestamptz;
+  v_oldtmp timestamptz;
 BEGIN
     v_ret := 0 ;
     IF ( p_servicesid IS NULL ) THEN
@@ -690,7 +692,23 @@ BEGIN
                     USING m
                     WHERE age(m.max, c.date_records) >= %L::interval;
                 ', v_partname, v_partname, v_servalid);
+                EXECUTE format('SELECT min(timet)
+                    FROM (
+                      SELECT (unnest(records)).timet
+                      FROM (
+                        SELECT records
+                        FROM wh_nagios.%I
+                        ORDER BY date_records ASC
+                        LIMIT 1
+                      )s
+                    )s2 ;', v_partname) INTO v_oldtmp;
+                v_oldest := least(v_oldest, v_oldtmp);
             END LOOP ;
+            IF ( v_oldest IS NOT NULL ) THEN
+                EXECUTE format('UPDATE wh_nagios.services
+                  SET oldest_record = %L
+                  WHERE id = %s', v_oldest, v_serviceid);
+            END IF;
         END IF ;
     END LOOP;
 
