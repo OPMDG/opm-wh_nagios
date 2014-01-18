@@ -414,3 +414,55 @@ COMMENT ON FUNCTION wh_nagios.dispatch_record(integer, boolean) IS 'Parse and di
 If a row concerns a non-existent server, it will create it without owner, so that only admins can see it. If a row concerns a service that didn''t
 had a cleanup for more than 10 days, it will perform a cleanup for it. If called with "true", it will log in the table "wh_nagios.hub_reject" all
 rows that couldn''t be dispatched, with the exception message.' ;
+
+/* wh_nagios.delete_services(VARIADIC bigint[])
+Delete a specific service.
+
+Foreign key will delete related labels, and trigger will drop related partitions.
+
+@p_serviceid: Unique identifiers of the services to deletes.
+@return : true if eveything went well.
+*/
+CREATE OR REPLACE function wh_nagios.delete_services(VARIADIC p_servicesid bigint[])
+    RETURNS boolean
+    AS $$
+DECLARE
+  v_state      text ;
+  v_msg        text ;
+  v_detail     text ;
+  v_hint       text ;
+  v_context    text ;
+  v_servicesid text ;
+BEGIN
+    v_servicesid := array_to_string(p_servicesid, ',');
+    EXECUTE format('DELETE FROM wh_nagios.services WHERE id IN ( %s ) ', v_servicesid ) ;
+    RETURN true ;
+EXCEPTION WHEN OTHERS THEN
+    GET STACKED DIAGNOSTICS
+        v_state   = RETURNED_SQLSTATE,
+        v_msg     = MESSAGE_TEXT,
+        v_detail  = PG_EXCEPTION_DETAIL,
+        v_hint    = PG_EXCEPTION_HINT,
+        v_context = PG_EXCEPTION_CONTEXT ;
+    raise notice E'Unhandled error:
+        state  : %
+        message: %
+        detail : %
+        hint   : %
+        context: %', v_state, v_msg, v_detail, v_hint, v_context ;
+    return false ;
+END ;
+$$
+LANGUAGE plpgsql
+VOLATILE
+LEAKPROOF ;
+
+ALTER FUNCTION wh_nagios.delete_services(VARIADIC bigint[])
+    OWNER TO opm ;
+REVOKE ALL ON FUNCTION wh_nagios.delete_services(VARIADIC bigint[])
+    FROM public ;
+GRANT EXECUTE ON FUNCTION wh_nagios.delete_services(VARIADIC bigint[])
+    TO opm_admins ;
+COMMENT ON FUNCTION wh_nagios.delete_services(VARIADIC bigint[]) IS 'Delete a service.
+All related labels will also be deleted, and the corresponding partitions
+will be dropped.' ;
