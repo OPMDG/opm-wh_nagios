@@ -57,6 +57,8 @@ DROP FUNCTION wh_nagios.purge_services(VARIADIC bigint[]);
 
 DROP FUNCTION IF EXISTS wh_nagios.delete_services(VARIADIC bigint[]);
 
+DROP FUNCTION IF EXISTS wh_nagios.update_services_validity(interval, VARIADIC bigint[]);
+
 /* wh_nagios.dispatch_record(boolean)
 Dispatch records from wh_nagios.hub into counters_detail_$ID
 

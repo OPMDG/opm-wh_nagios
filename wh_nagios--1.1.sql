@@ -719,6 +719,15 @@ LANGUAGE plpgsql
 VOLATILE
 LEAKPROOF ;
 
+ALTER FUNCTION wh_nagios.purge_services(VARIADIC bigint[])
+    OWNER TO opm ;
+REVOKE ALL ON FUNCTION wh_nagios.purge_services(VARIADIC bigint[])
+    FROM public ;
+GRANT EXECUTE ON FUNCTION wh_nagios.purge_services(VARIADIC bigint[])
+    TO opm_admins ;
+COMMENT ON FUNCTION wh_nagios.purge_services(VARIADIC bigint[]) IS 'Delete data older than retention interval.
+The age is calculated from newest_record, not server date.' ;
+
 /* wh_nagios.delete_services(VARIADIC bigint[])
 Delete a specific service.
 
@@ -770,14 +779,60 @@ GRANT EXECUTE ON FUNCTION wh_nagios.delete_services(VARIADIC bigint[])
 COMMENT ON FUNCTION wh_nagios.delete_services(VARIADIC bigint[]) IS 'Delete a service.
 All related labels will also be deleted, and the corresponding partitions
 will be dropped.' ;
-ALTER FUNCTION wh_nagios.purge_services(VARIADIC bigint[])
+
+/* wh_nagios.update_services_validity(interval, VARIADIC bigint[])
+Update data retention of a specific service.
+
+This function will not call pruge_services(), so data will stay until a purge
+is manually executed, or next purge cron job if it exists.
+
+@p_validity: New interval.
+@p_servicesid: Unique identifiers of the services to update.
+@return : true if eveything went well.
+*/
+CREATE OR REPLACE function wh_nagios.update_services_validity(p_validity interval, VARIADIC p_servicesid bigint[])
+    RETURNS boolean
+    AS $$
+DECLARE
+  v_state        text ;
+  v_msg          text ;
+  v_detail       text ;
+  v_hint         text ;
+  v_context      text ;
+  v_serviceid    bigint ;
+  v_servicesid   text ;
+BEGIN
+    v_servicesid := array_to_string(p_servicesid, ',');
+    EXECUTE format('UPDATE wh_nagios.services set servalid = %L WHERE id IN ( %s ) ', p_validity, v_servicesid ) ;
+    RETURN true ;
+EXCEPTION WHEN OTHERS THEN
+    GET STACKED DIAGNOSTICS
+        v_state   = RETURNED_SQLSTATE,
+        v_msg     = MESSAGE_TEXT,
+        v_detail  = PG_EXCEPTION_DETAIL,
+        v_hint    = PG_EXCEPTION_HINT,
+        v_context = PG_EXCEPTION_CONTEXT ;
+    raise notice E'Unhandled error:
+        state  : %
+        message: %
+        detail : %
+        hint   : %
+        context: %', v_state, v_msg, v_detail, v_hint, v_context ;
+    return false ;
+END ;
+$$
+LANGUAGE plpgsql
+VOLATILE
+LEAKPROOF ;
+
+ALTER FUNCTION wh_nagios.update_services_validity(interval, bigint[])
     OWNER TO opm ;
-REVOKE ALL ON FUNCTION wh_nagios.purge_services(VARIADIC bigint[])
+REVOKE ALL ON FUNCTION wh_nagios.update_services_validity(interval, bigint[])
     FROM public ;
-GRANT EXECUTE ON FUNCTION wh_nagios.purge_services(VARIADIC bigint[])
+GRANT EXECUTE ON FUNCTION wh_nagios.update_services_validity(interval, bigint[])
     TO opm_admins ;
-COMMENT ON FUNCTION wh_nagios.purge_services(VARIADIC bigint[]) IS 'Delete data older than retention interval.
-The age is calculated from newest_record, not server date.' ;
+COMMENT ON FUNCTION wh_nagios.update_services_validity(interval, bigint[]) IS 'Update validity
+of some services. This function won''t automatically purge the related data.' ;
 
 CREATE FUNCTION wh_nagios.get_sampled_label_data(id_label bigint, timet_begin timestamp with time zone, timet_end timestamp with time zone, sample_sec integer)
 RETURNS TABLE(timet timestamp with time zone, value numeric)
