@@ -571,3 +571,6 @@ GRANT EXECUTE ON FUNCTION wh_nagios.delete_labels(VARIADIC bigint[])
     TO opm_admins ;
 COMMENT ON FUNCTION wh_nagios.delete_labels(VARIADIC bigint[]) IS 'Delete labels.
 The corresponding partitions will be dropped.' ;
+
+ALTER TRIGGER create_partition_on_insert_service ON wh_nagios.labels RENAME TO create_partition_on_insert_label ;
+ALTER TRIGGER drop_partition_on_delete_service ON wh_nagios.labels RENAME TO drop_partition_on_delete_label ;

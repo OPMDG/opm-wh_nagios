@@ -326,3 +326,6 @@ COMMENT ON FUNCTION wh_nagios.dispatch_record(boolean) IS 'Parse and dispatch al
 If a row concerns a non-existent server, it will create it without owner, so that only admins can see it. If a row concerns a service that didn''t
 had a cleanup for more than 10 days, it will perform a cleanup for it. If called with "true", it will log in the table "wh_nagios.hub_reject" all
 rows that couldn''t be dispatched, with the exception message.' ;
+
+ALTER TRIGGER create_partition_on_insert_label ON wh_nagios.labels RENAME TO create_partition_on_insert_service ;
+ALTER TRIGGER drop_partition_on_delete_label ON wh_nagios.labels RENAME TO drop_partition_on_delete_service ;

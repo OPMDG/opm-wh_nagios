@@ -1127,11 +1127,11 @@ REVOKE ALL ON FUNCTION wh_nagios.drop_partition_on_delete_label() FROM public ;
 GRANT ALL ON FUNCTION wh_nagios.drop_partition_on_delete_label() TO opm_admins ;
 COMMENT ON FUNCTION wh_nagios.drop_partition_on_delete_label() IS 'Trigger that drop a dedicated partition when a label is deleted from the table wh_nagios.labels.' ;
 
-CREATE TRIGGER create_partition_on_insert_service
+CREATE TRIGGER create_partition_on_insert_label
     BEFORE INSERT ON wh_nagios.labels
     FOR EACH ROW
     EXECUTE PROCEDURE wh_nagios.create_partition_on_insert_label() ;
-CREATE TRIGGER drop_partition_on_delete_service
+CREATE TRIGGER drop_partition_on_delete_label
     AFTER DELETE ON wh_nagios.labels
     FOR EACH ROW
     EXECUTE PROCEDURE wh_nagios.drop_partition_on_delete_label() ;
