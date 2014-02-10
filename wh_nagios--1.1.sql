@@ -256,7 +256,7 @@ RETURNS TABLE (id_label bigint, label text, unit text, min numeric,
 AS $$
 DECLARE
 BEGIN
-    IF is_admin(session_user) THEN
+    IF public.is_admin(session_user) THEN
         RETURN QUERY SELECT l.id, l.label, l.unit, l.min, l.max, l.critical, l.warning
             FROM wh_nagios.labels l
             JOIN wh_nagios.services s
@@ -264,7 +264,7 @@ BEGIN
             WHERE s.id = p_service_id ;
     ELSE
         RETURN QUERY SELECT l.id, l.label, l.unit, l.min, l.max, l.critical, l.warning
-            FROM list_services() s
+            FROM wh_nagios.list_services() s
             JOIN wh_nagios.labels l
                 ON s.id = l.id_service
             WHERE s.id = p_service_id
