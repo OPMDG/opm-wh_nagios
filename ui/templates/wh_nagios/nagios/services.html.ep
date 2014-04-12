@@ -4,9 +4,6 @@
 % # Copyright (C) 2012-2014: Open PostgreSQL Monitoring Development Group
 
 % layout config 'layout';
-% content_for body_scripts => begin
-  <script type="text/javascript" src="<%= url_for '/js/wh_nagios.js' %>"></script>
-%end
 % my @services = @{stash 'services'};
 
 <h2><%=l 'List of services per servers' %> :</h2>
@@ -106,3 +103,6 @@
   <% } %>
 </div>
 <div class="clearfix"></div>
+% content_for body_scripts => begin
+%= javascript '/js/wh_nagios.js'
+% end

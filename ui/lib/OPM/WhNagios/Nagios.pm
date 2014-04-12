@@ -194,10 +194,9 @@ sub service {
     my $hostname;
 
     $sql = $dbh->prepare(
-        "SELECT s1.hostname
-      FROM public.servers s1
-      JOIN wh_nagios.services s2 ON s1.id = s2.id_server
-      WHERE s2.id = ?" );
+        "SELECT (public.get_server(s.id_server)).hostname
+      FROM wh_nagios.list_services() s
+      WHERE s.id = ?" );
 
     $sql->execute($service_id);
     $hostname = $sql->fetchrow();
@@ -211,19 +210,19 @@ sub service {
 
     $sql = $dbh->prepare(
         "SELECT id, service, last_modified,
-          age(CURRENT_DATE, last_modified) AS Age_last_modified,
-          creation_ts::timestamp(0) as creation_ts,
-          (CURRENT_TIMESTAMP - creation_ts)::interval(0) AS age_creation_ts,
-          last_cleanup::timestamp(0) as last_cleanup,
-          (CURRENT_TIMESTAMP - last_cleanup)::interval(0) AS age_last_cleanup,
-          servalid, UPPER(state) AS state,
-          oldest_record,
-          (CURRENT_TIMESTAMP - oldest_record)::interval(0) AS age_oldest_record,
-          newest_record,
-          (CURRENT_TIMESTAMP - newest_record)::interval(0) AS age_newest_record,
-          (newest_record - oldest_record)::interval(0) AS stored_interval,
-          ((newest_record - oldest_record) > servalid) AS need_purge
-          FROM wh_nagios.list_services() WHERE id = ?;"
+             age(CURRENT_DATE, last_modified) AS Age_last_modified,
+             creation_ts::timestamp(0) as creation_ts,
+             (CURRENT_TIMESTAMP - creation_ts)::interval(0) AS age_creation_ts,
+             last_cleanup::timestamp(0) as last_cleanup,
+             (CURRENT_TIMESTAMP - last_cleanup)::interval(0) AS age_last_cleanup,
+             servalid, UPPER(state) AS state, oldest_record,
+            (CURRENT_TIMESTAMP - oldest_record)::interval(0) AS age_oldest_record,
+            newest_record,
+            (CURRENT_TIMESTAMP - newest_record)::interval(0) AS age_newest_record,
+            (newest_record - oldest_record)::interval(0) AS stored_interval,
+            ((newest_record - oldest_record) > servalid) AS need_purge
+         FROM wh_nagios.list_services()
+         WHERE id = ?;"
     );
     $sql->execute($service_id);
 
@@ -271,12 +270,12 @@ sub service {
 
         # Get first and last record, interval and check if it's ok with related service's servalid
         my $sql_range = $dbh->prepare(
-            "SELECT min(date_records) AS min_rec, max(date_records) as max_rec,
-            age(max(date_records), min(date_records)) AS stored_interval,
-            (age(max(date_records), min(date_records)) > ?) AS need_purge
-            FROM wh_nagios.counters_detail_" . $labelrow->{id_metric} );
+            "SELECT min_date AS min_rec, max_date as max_rec,
+            age(max_date, min_date) AS stored_interval,
+            (age(max_date, min_date) > ?) AS need_purge
+            FROM wh_nagios.get_metric_timespan(?)" );
 
-        $sql_range->execute( $servicerow->{servalid} );
+        $sql_range->execute( $servicerow->{servalid}, $labelrow->{id_metric} );
 
         my $range = $sql_range->fetchrow_hashref();
 
@@ -556,7 +555,7 @@ sub _delete_label {
 
     my $dbh = $self->database();
     my $sql = $dbh->prepare(
-        "SELECT * FROM wh_nagios.delete_labels( $id_metrics ) ;");
+        "SELECT * FROM wh_nagios.delete_metrics( $id_metrics ) ;");
 
     if ( !$sql->execute() ) {
         $self->msg->error('Database error');

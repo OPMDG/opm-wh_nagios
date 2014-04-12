@@ -641,7 +641,7 @@ BEGIN
                 FROM del
             )
             INSERT INTO tmp
-            SELECT date_records, array_agg(row(timet,value)::wh_nagios.counters_detail)
+            SELECT date_records, array_agg(row(timet,value)::public.metric_value)
             FROM rec
             GROUP BY date_records
             UNION ALL
