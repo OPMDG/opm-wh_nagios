@@ -80,7 +80,7 @@ sub details_server {
     my $values = [];
     push (@{$values}, {
         class => '',
-        title => 'wh_nagios: '
+        title => ''
     });
     if ( @{$details} eq 1 and @{$details}[0]->{'state'} eq 'OK' ){
         my $class = format_state( @{$details}[0]->{'state'} );
