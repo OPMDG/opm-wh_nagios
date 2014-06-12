@@ -289,106 +289,6 @@ CREATE TRIGGER drop_partition_on_delete_metric
     EXECUTE PROCEDURE wh_nagios.drop_partition_on_delete_metric();
 
 
-/* v2.1
-wh_nagios.grant_appli
-Grant a postgresql role to access our API.
-
-@return granted: true if success
-*/
-CREATE OR REPLACE
-FUNCTION wh_nagios.grant_appli (IN p_role name)
-RETURNS TABLE (operat text, approle name, appright text, objtype text, objname text)
-LANGUAGE plpgsql STRICT VOLATILE LEAKPROOF SECURITY DEFINER
-SET search_path TO public
-AS $$
-DECLARE
-    v_dbname name := pg_catalog.current_database();
-BEGIN
-    operat   := 'GRANT';
-    approle  := p_role;
-
-    appright := 'USAGE';
-    objtype  := 'schema';
-    objname  := 'wh_nagios';
-    EXECUTE pg_catalog.format('GRANT %s ON %s %I TO %I', appright, objtype, objname, approle);
-
-    RETURN NEXT;
-
-    appright := 'EXECUTE';
-    -- grant execute on some functionsFunctions
-    FOR objtype, objname IN (
-        SELECT i.type, i.identity
-        FROM pg_catalog.pg_depend AS d
-            JOIN pg_catalog.pg_extension AS e ON d.refobjid = e.oid,
-            LATERAL pg_catalog.pg_identify_object(d.classid, d.objid, 0) AS i
-        WHERE e.extname = 'wh_nagios'
-            AND d.refclassid = 'pg_catalog.pg_extension'::pg_catalog.regclass 
-            AND deptype = 'e'
-            AND i.type = 'function'
-            -- exclude non-API functions
-            AND i.identity !~ '^wh_nagios.(grant_appli|revoke_appli|grant_dispatcher|revoke_dispatcher)'
-    )
-    LOOP
-        -- warning: identity is already escaped by pg_identify_object(...)
-        EXECUTE pg_catalog.format('GRANT EXECUTE ON FUNCTION %s TO %I', objname, approle);
-        RETURN NEXT;
-    END LOOP;
-END
-$$;
-
-REVOKE ALL ON FUNCTION wh_nagios.grant_appli(IN name) FROM public;
-
-
-/* v2.1
-wh_nagios.revoke_appli
-Revoke a postgresql role to access our API.
-
-@return granted: true if success
-*/
-CREATE OR REPLACE
-FUNCTION wh_nagios.revoke_appli (IN p_role name)
-RETURNS TABLE (operat text, approle name, appright text, objtype text, objname text)
-LANGUAGE plpgsql STRICT VOLATILE LEAKPROOF SECURITY DEFINER
-SET search_path TO public
-AS $$
-DECLARE
-    v_dbname name := pg_catalog.current_database();
-BEGIN
-    operat   := 'REVOKE';
-    approle  := p_role;
-
-    appright := 'USAGE';
-    objtype  := 'schema';
-    objname  := 'wh_nagios';
-    EXECUTE pg_catalog.format('REVOKE %s ON %s %I FROM %I', appright, objtype, objname, approle);
-
-    RETURN NEXT;
-
-    appright := 'EXECUTE';
-    -- grant execute on some functionsFunctions
-    FOR objtype, objname IN (
-        SELECT i.type, i.identity
-        FROM pg_catalog.pg_depend AS d
-            JOIN pg_catalog.pg_extension AS e ON d.refobjid = e.oid,
-            LATERAL pg_catalog.pg_identify_object(d.classid, d.objid, 0) AS i
-        WHERE e.extname = 'wh_nagios'
-            AND d.refclassid = 'pg_catalog.pg_extension'::pg_catalog.regclass
-            AND deptype = 'e'
-            AND i.type = 'function'
-    )
-    LOOP
-        -- warning: identity is already escaped by pg_identify_object(...)
-        EXECUTE pg_catalog.format('REVOKE EXECUTE ON FUNCTION %s FROM %I', objname, approle);
-        RETURN NEXT;
-    END LOOP;
-
-END
-$$;
-
-REVOKE ALL ON FUNCTION wh_nagios.revoke_appli(IN name) FROM public;
-
-
-
 
 /*********** API *************/
 
@@ -428,6 +328,9 @@ REVOKE ALL ON FUNCTION wh_nagios.list_metrics(bigint) FROM public ;
 COMMENT ON FUNCTION wh_nagios.list_metrics(bigint) IS
 'Return all metrics for given service by id, if user is allowed to.' ;
 
+SELECT * FROM public.register_api('wh_nagios.list_metrics(bigint)'::regprocedure);
+
+
 /* wh_nagios.list_services()
 Return every wh_nagios.services%ROWTYPE
 
@@ -456,6 +359,8 @@ REVOKE ALL ON FUNCTION wh_nagios.list_services() FROM public;
 
 COMMENT ON FUNCTION wh_nagios.list_services() IS
 'Return all services a user is allowed to see.';
+
+SELECT * FROM public.register_api('wh_nagios.list_services()'::regprocedure);
 
 
 /* wh_nagios.dispatch_record(boolean, integer)
@@ -727,6 +632,8 @@ If a row concerns a non-existent server, it will create it without owner, so tha
 had a cleanup for more than 10 days, it will perform a cleanup for it. If called with "true", it will log in the table "wh_nagios.hub_reject" all
 rows that couldn''t be dispatched, with the exception message.';
 
+SELECT * FROM public.register_api('wh_nagios.dispatch_record(integer, boolean)'::regprocedure);
+
 
 /* wh_nagios.cleanup_service(bigint)
 Aggregate all data by day in an array, to avoid space overhead and benefit TOAST compression.
@@ -736,7 +643,7 @@ This will be done for every metric corresponding to the service.
 @return : true if everything went well.
 */
 CREATE OR REPLACE
-FUNCTION cleanup_service(p_serviceid bigint)
+FUNCTION wh_nagios.cleanup_service(p_serviceid bigint)
 RETURNS boolean
 LANGUAGE plpgsql STRICT VOLATILE SECURITY DEFINER
 SET search_path TO public
@@ -795,6 +702,7 @@ COMMENT ON FUNCTION wh_nagios.cleanup_service(bigint) IS
 'Aggregate all data by day in an array, to avoid space overhead and benefit TOAST compression.
 This will be done for every metric corresponding to the service.';
 
+SELECT * FROM public.register_api('wh_nagios.cleanup_service(bigint)'::regprocedure);
 
 
 /* wh_nagios.purge_services(VARIADIC bigint[])
@@ -805,7 +713,7 @@ any data if servalid IS NULL
 @return : number of services purged.
 */
 CREATE OR REPLACE
-FUNCTION purge_services(VARIADIC p_servicesid bigint[] = NULL)
+FUNCTION wh_nagios.purge_services(VARIADIC p_servicesid bigint[] = NULL)
 RETURNS bigint
 LANGUAGE plpgsql VOLATILE SECURITY DEFINER
 SET search_path TO public
@@ -894,6 +802,9 @@ COMMENT ON FUNCTION wh_nagios.purge_services(VARIADIC bigint[]) IS
 'Delete data older than retention interval.
 The age is calculated from newest_record, not server date.';
 
+SELECT * FROM public.register_api('wh_nagios.purge_services(bigint[])'::regprocedure);
+
+
 /* wh_nagios.delete_services(VARIADIC bigint[])
 Delete a specific service.
 
@@ -928,6 +839,10 @@ All related metrics will also be deleted, and the corresponding partitions
 will be dropped.
 
 User must be admin.';
+
+SELECT * FROM public.register_api('wh_nagios.delete_services(bigint[])'::regprocedure);
+
+
 
 /* wh_nagios.update_services_validity(interval, VARIADIC bigint[])
 Update data retention of a specific service.
@@ -966,7 +881,7 @@ This function won''t automatically purge the related data.
 
 User must be admin.';
 
-
+SELECT * FROM public.register_api('wh_nagios.update_services_validity(interval, bigint[])'::regprocedure);
 
 
 /* wh_nagios.delete_metrics(VARIADIC bigint[])
@@ -1003,6 +918,8 @@ The corresponding partitions will be dropped.
 
 User must be admin.';
 
+SELECT * FROM public.register_api('wh_nagios.delete_metrics(bigint[])'::regprocedure);
+
 
 CREATE OR REPLACE
 FUNCTION wh_nagios.get_metric_timespan(IN id_metric bigint)
@@ -1023,6 +940,9 @@ REVOKE ALL ON FUNCTION wh_nagios.get_metric_timespan(bigint) FROM public;
 
 COMMENT ON FUNCTION wh_nagios.get_metric_timespan(bigint) IS
 'returns min and max known date for given metric id';
+
+SELECT * FROM public.register_api('wh_nagios.get_metric_timespan(bigint)'::regprocedure);
+
 
 CREATE OR REPLACE
 FUNCTION wh_nagios.get_metric_data(id_metric bigint, timet_begin timestamp with time zone, timet_end timestamp with time zone)
@@ -1046,6 +966,8 @@ REVOKE ALL ON FUNCTION wh_nagios.get_metric_data(bigint, timestamp with time zon
 
 COMMENT ON FUNCTION wh_nagios.get_metric_data(bigint, timestamp with time zone, timestamp with time zone) IS
 'Return metric data for the specified metric unique identifier within the specified interval.';
+
+SELECT * FROM public.register_api('wh_nagios.get_metric_data(bigint,timestamp with time zone,timestamp with time zone)'::regprocedure);
 
 
 CREATE OR REPLACE
@@ -1075,6 +997,8 @@ REVOKE ALL ON FUNCTION wh_nagios.get_metric_data(text, text, text, timestamp wit
 
 COMMENT ON FUNCTION wh_nagios.get_metric_data(text, text, text, timestamp with time zone, timestamp with time zone) IS
 'Return metric data for the specified hostname, service and metric (all by name) within the specified interval.';
+
+SELECT * FROM public.register_api('wh_nagios.get_metric_data(text, text, text, timestamp with time zone, timestamp with time zone)'::regprocedure);
 
 
 SELECT * FROM public.set_extension_owner('wh_nagios');
