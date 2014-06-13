@@ -515,7 +515,6 @@ REVOKE ALL ON FUNCTION wh_nagios.get_metric_data(bigint, timestamp with time zon
 COMMENT ON FUNCTION wh_nagios.get_metric_data(bigint, timestamp with time zone, timestamp with time zone) IS
 'Return metric data for the specified metric unique identifier within the specified interval.';
 
-SELECT * FROM public.register_api('wh_nagios.get_metric_data(bigint,timestamp with time zone,timestamp with time zone)'::regprocedure);
 
 
 CREATE OR REPLACE
@@ -546,7 +545,6 @@ REVOKE ALL ON FUNCTION wh_nagios.get_metric_data(text, text, text, timestamp wit
 COMMENT ON FUNCTION wh_nagios.get_metric_data(text, text, text, timestamp with time zone, timestamp with time zone) IS
 'Return metric data for the specified hostname, service and metric (all by name) within the specified interval.';
 
-SELECT * FROM public.register_api('wh_nagios.get_metric_data(text, text, text, timestamp with time zone, timestamp with time zone)'::regprocedure);
 
 
 CREATE OR REPLACE
