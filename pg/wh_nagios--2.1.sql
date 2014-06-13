@@ -180,27 +180,46 @@ wh_nagios.grant_dispatcher(role)
 @return rc: state of the operation
  */
 CREATE OR REPLACE
-FUNCTION wh_nagios.grant_dispatcher(IN p_rolname name,
-    OUT rc boolean)
+FUNCTION wh_nagios.grant_dispatcher(IN p_rolname name)
+RETURNS TABLE (operat text, approle name, appright text, objtype text, objname text)
 LANGUAGE plpgsql STRICT VOLATILE LEAKPROOF SECURITY DEFINER
 SET search_path TO public
 AS $$
+DECLARE
+    v_dbname name := pg_catalog.current_database();
 BEGIN
-    EXECUTE pg_catalog.format('GRANT USAGE ON SCHEMA wh_nagios TO %I', p_rolname);
-    EXECUTE pg_catalog.format('GRANT USAGE ON SEQUENCE wh_nagios.hub_id_seq TO %I', p_rolname);
-    EXECUTE pg_catalog.format('GRANT INSERT ON TABLE wh_nagios.hub TO %I', p_rolname);
+    operat   := 'GRANT';
+    approle  := p_rolname;
 
-    RAISE NOTICE 'GRANTED';
+    appright := 'CONNECT';
+    objtype  := 'DATABASE';
+    objname  := v_dbname;
+    EXECUTE pg_catalog.format('GRANT %s ON %s %I TO %I', appright, objtype, objname, approle);
+    RETURN NEXT;
 
-    rc := true;
+    appright := 'USAGE';
+    objtype  := 'SCHEMA';
+    objname  := 'wh_nagios';
+    EXECUTE pg_catalog.format('GRANT %s ON %s %I TO %I', appright, objtype, objname, approle);
+    RETURN NEXT;
 
-    RETURN;
+    appright := 'USAGE';
+    objtype  := 'SEQUENCE';
+    objname  := 'wh_nagios.hub_id_seq';
+    EXECUTE pg_catalog.format('GRANT %s ON %s %s TO %I', appright, objtype, objname, approle);
+    RETURN NEXT;
+
+    appright := 'INSERT';
+    objtype  := 'TABLE';
+    objname  := 'wh_nagios.hub';
+    EXECUTE pg_catalog.format('GRANT %s ON %s %s TO %I', appright, objtype, objname, approle);
+    RETURN NEXT;
 END
 $$;
 
-REVOKE ALL ON FUNCTION wh_nagios.grant_dispatcher(IN name, OUT boolean) FROM public;
+REVOKE ALL ON FUNCTION wh_nagios.grant_dispatcher(IN name) FROM public;
 
-COMMENT ON FUNCTION wh_nagios.grant_dispatcher(IN name, OUT boolean)
+COMMENT ON FUNCTION wh_nagios.grant_dispatcher(IN name)
     IS 'Grant a role to dispatch performance data in warehouse wh_nagios.';
 
 /* v2.1
@@ -209,21 +228,37 @@ wh_nagios.revoke_dispatcher(role)
 @return rc: state of the operation
  */
 CREATE OR REPLACE
-FUNCTION wh_nagios.revoke_dispatcher( IN p_rolname name,
-    OUT rc boolean)
+FUNCTION wh_nagios.revoke_dispatcher( IN p_rolname name )
+RETURNS TABLE (operat text, approle name, appright text, objtype text, objname text)
 LANGUAGE plpgsql STRICT VOLATILE LEAKPROOF SECURITY DEFINER
 SET search_path TO public
 AS $$
+DECLARE
+    v_dbname name := pg_catalog.current_database();
 BEGIN
-    EXECUTE pg_catalog.format('REVOKE ALL ON SCHEMA wh_nagios FROM %I', p_rolname);
-    EXECUTE pg_catalog.format('REVOKE ALL ON SEQUENCE wh_nagios.hub_id_seq FROM %I', p_rolname);
-    EXECUTE pg_catalog.format('REVOKE ALL ON TABLE wh_nagios.hub FROM %I', p_rolname);
+    operat   := 'REVOKE';
+    approle  := p_rolname;
 
-    RAISE NOTICE 'REVOKED';
+    appright := 'ALL';
+    objtype  := 'DATABASE';
+    objname  := v_dbname;
+    EXECUTE pg_catalog.format('REVOKE %s ON %s %I FROM %I', appright, objtype, objname, approle);
+    RETURN NEXT;
 
-    rc := true;
+    objtype  := 'SCHEMA';
+    objname  := 'wh_nagios';
+    EXECUTE pg_catalog.format('REVOKE %s ON %s %I FROM %I', appright, objtype, objname, approle);
+    RETURN NEXT;
 
-    RETURN;
+    objtype  := 'SEQUENCE';
+    objname  := 'wh_nagios.hub_id_seq';
+    EXECUTE pg_catalog.format('REVOKE %s ON %s %s FROM %I', appright, objtype, objname, approle);
+    RETURN NEXT;
+
+    objtype  := 'TABLE';
+    objname  := 'wh_nagios.hub';
+    EXECUTE pg_catalog.format('REVOKE %s ON %s %s FROM %I', appright, objtype, objname, approle);
+    RETURN NEXT;
 END
 $$;
 
