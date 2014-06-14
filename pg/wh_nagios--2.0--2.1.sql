@@ -570,7 +570,7 @@ COMMENT ON FUNCTION wh_nagios.get_metric_timespan(bigint) IS
 SELECT * FROM public.register_api('wh_nagios.get_metric_timespan(bigint)'::regprocedure);
 
 
-DROP FUNCTION wh_nagios.grant_dispatcher(name)
+DROP FUNCTION wh_nagios.grant_dispatcher(name);
 
 /* v2.1
 wh_nagios.grant_dispatcher(role)
