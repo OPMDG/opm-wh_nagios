@@ -57,7 +57,9 @@ CREATE TABLE wh_nagios.series (
 INHERITS (public.series);
 ALTER TABLE wh_nagios.series OWNER TO opm ;
 REVOKE ALL ON wh_nagios.series FROM public ;
-ALTER TABLE wh_nagios.series ADD PRIMARY KEY (id_graph, id_metric) ;
+CREATE UNIQUE INDEX ON wh_nagios.series (id_metric, id_graph);
+CREATE INDEX ON wh_nagios.series (id_graph);
+
 COMMENT ON TABLE wh_nagios.series IS 'Stores all series for graph purpose.' ;
 COMMENT ON COLUMN wh_nagios.series.id_graph IS 'Graph this serie is referencing.' ;
 COMMENT ON COLUMN wh_nagios.series.id_metric IS 'Metric this serie is referencing.' ;
