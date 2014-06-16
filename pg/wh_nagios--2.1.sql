@@ -105,11 +105,12 @@ COMMENT ON COLUMN wh_nagios.metrics.critical   IS 'Critical threshold for the me
 COMMENT ON COLUMN wh_nagios.metrics.warning    IS 'Warning threshold for the metric.';
 
 CREATE TABLE wh_nagios.series (
-    PRIMARY KEY (id_graph, id_metric),
     FOREIGN KEY (id_graph)  REFERENCES public.graphs (id)     MATCH FULL ON DELETE CASCADE ON UPDATE CASCADE,
     FOREIGN KEY (id_metric) REFERENCES wh_nagios.metrics (id) MATCH FULL ON DELETE CASCADE ON UPDATE CASCADE
 )
 INHERITS (public.series);
+CREATE UNIQUE INDEX ON wh_nagios.series (id_metric, id_graph);
+CREATE INDEX ON wh_nagios.series (id_graph);
 
 REVOKE ALL ON wh_nagios.series FROM public ;
 
