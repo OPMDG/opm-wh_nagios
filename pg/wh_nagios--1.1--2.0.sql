@@ -939,3 +939,12 @@ GRANT ALL ON FUNCTION wh_nagios.revoke_service(IN p_service_id bigint, IN p_roln
 
 COMMENT ON FUNCTION wh_nagios.revoke_service(IN p_service_id bigint, IN p_rolname name, OUT rc boolean) IS 'Revoke SELECT on a service, i.e. all its counters_detail_X partitions.' ;
 
+CREATE TRIGGER create_partition_on_insert_metric
+    BEFORE INSERT ON wh_nagios.metrics
+    FOR EACH ROW
+    EXECUTE PROCEDURE wh_nagios.create_partition_on_insert_metric();
+
+CREATE TRIGGER drop_partition_on_delete_metric
+    AFTER DELETE ON wh_nagios.metrics
+    FOR EACH ROW
+    EXECUTE PROCEDURE wh_nagios.drop_partition_on_delete_metric();
