@@ -161,6 +161,10 @@ COMMENT ON COLUMN wh_nagios.services_metrics.state         IS 'Current nagios st
 SELECT pg_catalog.pg_extension_config_dump('wh_nagios.services', '') ;
 SELECT pg_catalog.pg_extension_config_dump('wh_nagios.metrics', '') ;
 SELECT pg_catalog.pg_extension_config_dump('wh_nagios.series', '') ;
+SELECT pg_catalog.pg_extension_config_dump('wh_nagios.hub', '') ;
+SELECT pg_catalog.pg_extension_config_dump('wh_nagios.hub_id_seq', '') ;
+SELECT pg_catalog.pg_extension_config_dump('wh_nagios.hub_reject', '') ;
+SELECT pg_catalog.pg_extension_config_dump('wh_nagios.hub_reject_id_seq', '') ;
 
 
 /***************************************

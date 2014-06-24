@@ -1,6 +1,11 @@
 -- complain if script is sourced in psql, rather than via CREATE EXTENSION
 \echo Use "CREATE EXTENSION wh_nagios" to load this file. \quit
 
+SELECT pg_catalog.pg_extension_config_dump('wh_nagios.hub', '') ;
+SELECT pg_catalog.pg_extension_config_dump('wh_nagios.hub_id_seq', '') ;
+SELECT pg_catalog.pg_extension_config_dump('wh_nagios.hub_reject', '') ;
+SELECT pg_catalog.pg_extension_config_dump('wh_nagios.hub_reject_id_seq', '') ;
+
 -- This program is open source, licensed under the PostgreSQL License.
 -- For license terms, see the LICENSE file.
 --
