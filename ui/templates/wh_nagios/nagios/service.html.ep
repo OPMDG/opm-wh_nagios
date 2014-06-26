@@ -9,7 +9,7 @@
 % my $hostname = stash 'hostname';
 
 <div class="row" id="service_state">
-  <h2><%=l 'Service' %> <u><%= $service->{'service'} %></u> <%=l 'on server' %> <u><%= $hostname %></u></h2>
+  <h1><%=l 'Service' %> <u><%= $service->{'service'} %></u> <%=l 'on server' %> <u><%= $hostname %></u></h1>
   <div class="box col-md-10">
     <%= form_for wh_nagios_service_post => (role => 'form', method => 'POST') => begin %>
       <table class="table table-condensed table-hover">
@@ -54,16 +54,16 @@
           <tr>
             <td colspan="2">
               <%= link_to wh_nagios_cleanup => { id => $service->{id} } => begin %>
-                <label class="btn btn-inverse"><span><i class="icon-tasks"></i></span> <%=l 'Cleanup now' %></label>
+                <label class="btn btn-inverse"><span><i class="fa fa-tasks"></i></span> <%=l 'Cleanup now' %></label>
               <% end %>
               <%= link_to wh_nagios_purge => { id => $service->{id} } => begin %>
-                <label class="btn btn-inverse"><span><i class="icon-trash"></i></span> <%=l 'Purge now' %></label>
+                <label class="btn btn-inverse"><span><i class="fa fa-trash"></i></span> <%=l 'Purge now' %></label>
               <% end %>
               <br />
               <%= link_to wh_nagios_delete_service => { id => $service->{id} } => ( onclick => "return confirmDelService('$service->{service}', '$service->{service}');" ) => begin %>
-                <label class="btn btn-danger"><span><i class="icon-remove"></i></span> <%=l 'Delete service' %></label>
+                <label class="btn btn-danger"><span><i class="fa fa-times"></i></span> <%=l 'Delete service' %></label>
               <% end %>
-              <label class="btn btn-info" for="servalid_<%= $service->{'id'} %>" id="lbl_servalid"><span><i class="icon-edit"></i></span> <%=l 'Update retention' %></label>
+              <label class="btn btn-info" for="servalid_<%= $service->{'id'} %>" id="lbl_servalid"><span><i class="fa fa-edit"></i></span> <%=l 'Update retention' %></label>
               <%= submit_button l('Update retention'), id => 'servalid_' . $service->{'id'}, name => 'servalid', class => 'hidden btn btn-info' %>&nbsp;
             </td>
           </tr>
@@ -73,7 +73,7 @@
   </div>
 </div>
 <div class="row" id="label_list">
-  <h2><%=l 'List of labels' %> :</h2>
+  <h1><%=l 'List of labels' %> :</h2>
   <div class="box col-md-10">
     <% if ( scalar @labels ) { %>
       <%= form_for wh_nagios_service_post => (method => 'POST') => begin %>
@@ -108,7 +108,7 @@
                 <td class="label-<%= $s->{label_purge_class} %>"><%= $s->{stored_interval} %></td>
                 <td>
                   <%= link_to wh_nagios_delete_label => { id_s => $service->{id}, id_l => $s->{id_metric} } => ( onclick => "return confirmDelLabel('$hostname', '$service->{service}', '$s->{label}');" ) => begin %>
-                    <label class="btn btn-danger" title="<%=l 'Delete label' %>"><span><i class="glyphicon glyphicon-remove"></i></span></label>
+                    <label class="btn btn-danger" title="<%=l 'Delete label' %>"><span><i class="fa fa-times"></i></span></label>
                   <% end %>
                 </td>
               </tr>
@@ -129,6 +129,7 @@
     <% } else {%>
       <p><%=l 'No label found' %>.</p>
     <% } %>
+  </div>
 </div>
 <div class="clearfix"></div>
 
