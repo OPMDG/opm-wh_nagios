@@ -1,0 +1,2 @@
+The test file(s) should be symlinked to opm_core/pg/t to be tested,
+as they require some sql files in this directory.
