@@ -6,7 +6,7 @@
 \unset ECHO
 \i t/setup.sql
 
-SELECT plan(146);
+SELECT plan(147);
 
 CREATE OR REPLACE FUNCTION test_set_opm_session(IN p_user name)
   RETURNS SETOF TEXT LANGUAGE plpgsql AS $f$
@@ -78,6 +78,27 @@ SELECT has_table('wh_nagios', 'services',
 );
 SELECT has_view('wh_nagios', 'services_metrics',
     'View "services_metrics" of schema "wh_nagios" should exists.'
+);
+
+-- All tables/sequences should be dumped by pg_dump
+SELECT set_eq(
+    $$
+    WITH dumped AS (SELECT unnest(extconfig) AS oid
+            FROM pg_extension
+                WHERE extname = 'wh_nagios'
+            ),
+            ext AS (SELECT c.oid,c.relname
+                FROM pg_depend d
+                JOIN pg_extension e ON d.refclassid = (SELECT oid FROM pg_class WHERE relname = 'pg_extension') AND d.refobjid = e.oid AND d.deptype = 'e'
+                JOIN pg_class c ON d.objid = c.oid AND c.relkind in ('S','r')
+                WHERE e.extname = 'wh_nagios'
+            )
+            SELECT count(*) FROM ext
+            LEFT JOIN dumped ON dumped.oid = ext.oid
+            WHERE dumped.oid IS NULL;
+    $$,
+    $$ VALUES (0) $$,
+    'All tables and sequences should be dumped by pg_dump.'
 );
 
 SELECT has_function('wh_nagios', 'cleanup_service', '{bigint}', 'Function "wh_nagios.cleanup_service" should exists.');
