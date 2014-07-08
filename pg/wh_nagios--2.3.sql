@@ -161,6 +161,10 @@ COMMENT ON COLUMN wh_nagios.services_metrics.state         IS 'Current nagios st
 SELECT pg_catalog.pg_extension_config_dump('wh_nagios.services', '') ;
 SELECT pg_catalog.pg_extension_config_dump('wh_nagios.metrics', '') ;
 SELECT pg_catalog.pg_extension_config_dump('wh_nagios.series', '') ;
+SELECT pg_catalog.pg_extension_config_dump('wh_nagios.hub', '') ;
+SELECT pg_catalog.pg_extension_config_dump('wh_nagios.hub_id_seq', '') ;
+SELECT pg_catalog.pg_extension_config_dump('wh_nagios.hub_reject', '') ;
+SELECT pg_catalog.pg_extension_config_dump('wh_nagios.hub_reject_id_seq', '') ;
 
 
 /***************************************
@@ -989,10 +993,13 @@ AS $$
 BEGIN
     -- FIXME check user rights to access these data ?
     RETURN QUERY EXECUTE format('
-        SELECT (pg_catalog.unnest(records)).*
-        FROM wh_nagios.counters_detail_%s
-        WHERE date_records >= $1
-            AND date_records <= $2', id_metric
+        SELECT * FROM (
+            SELECT (pg_catalog.unnest(records)).*
+            FROM wh_nagios.counters_detail_%s
+            WHERE date_records >= date_trunc(''day'',$1)
+                AND date_records <= date_trunc(''day'',$2)
+        ) sql
+        WHERE timet >= $1 AND timet <= $2', id_metric
     ) USING timet_begin,timet_end;
 END
 $$;
@@ -1002,36 +1009,5 @@ REVOKE ALL ON FUNCTION wh_nagios.get_metric_data(bigint, timestamp with time zon
 
 COMMENT ON FUNCTION wh_nagios.get_metric_data(bigint, timestamp with time zone, timestamp with time zone) IS
 'Return metric data for the specified metric unique identifier within the specified interval.';
-
-
-
-CREATE OR REPLACE
-FUNCTION wh_nagios.get_metric_data(i_hostname text, i_service text, i_label text, timet_begin timestamp with time zone, timet_end timestamp with time zone)
-RETURNS TABLE(timet timestamp with time zone, value numeric)
-LANGUAGE plpgsql STRICT STABLE SECURITY DEFINER
-SET search_path TO public
-AS $$
-DECLARE
-    v_id_metric bigint;
-BEGIN
-    SELECT id INTO v_id_metric
-    FROM wh_nagios.services_metric
-    WHERE hostname = i_hostname
-        AND service = i_service
-        AND label = i_label;
-
-    IF NOT FOUND THEN
-        RETURN;
-    ELSE
-        RETURN QUERY SELECT * FROM wh_nagios.get_sampled_metric_data(v_id_metric, timet_begin, timet_end);
-    END IF;
-END
-$$;
-
-REVOKE ALL ON FUNCTION wh_nagios.get_metric_data(text, text, text, timestamp with time zone, timestamp with time zone) FROM public;
-
-COMMENT ON FUNCTION wh_nagios.get_metric_data(text, text, text, timestamp with time zone, timestamp with time zone) IS
-'Return metric data for the specified hostname, service and metric (all by name) within the specified interval.';
-
 
 SELECT * FROM public.set_extension_owner('wh_nagios');

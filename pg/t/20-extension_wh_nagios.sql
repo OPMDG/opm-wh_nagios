@@ -6,7 +6,7 @@
 \unset ECHO
 \i t/setup.sql
 
-SELECT plan(147);
+SELECT plan(146);
 
 CREATE OR REPLACE FUNCTION test_set_opm_session(IN p_user name)
   RETURNS SETOF TEXT LANGUAGE plpgsql AS $f$
