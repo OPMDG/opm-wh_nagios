@@ -341,7 +341,7 @@ sub dbconnect {
 
     }
 
-    $debug and log_message 
+    $debug and log_message
         sprintf("DEBUG: Connected to '%s' with user '%s'.\n",
             $connection_string, $user);
 
@@ -446,7 +446,7 @@ sub watch_directory {
             # If not inserted, we retry
             unless ($inserted) {
                 $dbh->disconnect();
-		undef $dbh;
+        undef $dbh;
 
                 log_message
                     "ERROR: Could not insert '$entry' datas. Retrying.";

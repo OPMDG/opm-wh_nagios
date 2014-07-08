@@ -692,7 +692,7 @@ BEGIN
     SELECT ( pg_catalog.count(1) = 1 ) INTO v_servicefound
     FROM wh_nagios.services AS s
     WHERE s.id = p_serviceid;
-    
+
     IF NOT v_servicefound THEN
         RETURN false;
     END IF;
