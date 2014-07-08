@@ -412,11 +412,11 @@ SELECT set_eq(
 SELECT set_eq(
     $$SELECT * FROM wh_nagios.metrics$$,
     $$VALUES
-        (1,1,'template0', '', 0::numeric, 0::numeric,
+        (1,1,'template0', '', '{}'::text[], 0::numeric, 0::numeric,
             524288000::numeric, 209715200::numeric),
-        (2,2,'template0', 'B', 0::numeric, 0::numeric,
+        (2,2,'template0', 'B', '{}'::text[],  0::numeric, 0::numeric,
             524288000::numeric, 209715200::numeric),
-        (3,2,'postgres', 'B', 0::numeric, 0::numeric,
+        (3,2,'postgres', 'B', '{}'::text[],  0::numeric, 0::numeric,
             524288000::numeric, 209715200::numeric)$$,
     'Table "wh_nagios.metrics" should contains metrics of records 9, 10 and 11.'
 );
@@ -742,7 +742,7 @@ SELECT lives_ok(
 -- check table public.labels do not have label from service 2 anymore
 SELECT set_eq(
     $$SELECT * FROM wh_nagios.metrics$$,
-    $$VALUES (1,1,'template0', '', 0::numeric, 0::numeric,
+    $$VALUES (1::bigint,1::bigint,'template0', '', '{}'::text[],0::numeric, 0::numeric,
         524288000::numeric, 209715200::numeric)$$,
     'Table "wh_nagios.metrics" should not contains labels of service id 2 anymore.'
 );
