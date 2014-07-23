@@ -40,12 +40,44 @@ sub links_adm_menu {
     my ( $self, $ctrl ) = ( shift, shift );
     my $args  = @_;
     my $value = {
-        class  => 'glyphicon glyphicon-cog',
-        title => 'wh_nagios',
-        cr_regex => '^wh_nagios',
-        href  => $ctrl->url_for( 'wh_nagios_services', @_ )
+        a => {
+            href  => $ctrl->url_for( 'wh_nagios_services' )
+        },
+        i => {
+            class => 'glyphicon glyphicon-cog',
+        },
+        display => 'wh_nagios'
     };
     return [$value];
+}
+
+# Display admin links in graph pages
+sub links_service_graph {
+    my ( $self, $ctrl ) = ( shift, shift );
+    my $arg  = shift;
+    my $ret = [];
+    my $dbh = $ctrl->database();
+    my $sql = $dbh->prepare("SELECT g.id_service, s.service
+        FROM public.get_graph( ? ) g
+        JOIN public.get_service( g.id_service ) s ON true
+        WHERE g.warehouse = 'wh_nagios'"
+    );
+    $sql->execute( $arg->{id_graph} );
+    while ( my $row = $sql->fetchrow_hashref() ) {
+        my $value = {
+            a => {
+                class => 'btn btn-default btn-sm',
+                title => $ctrl->l("Admin") . " (" .$row->{service} . ")",
+                href  => $ctrl->url_for('wh_nagios_service', id => $row->{id_service})
+            },
+            i => {
+                class => 'fa fa-cog'
+            },
+            display => ''
+        };
+        push @{ $ret }, $value;
+    }
+    return $ret;
 }
 
 sub format_state {
