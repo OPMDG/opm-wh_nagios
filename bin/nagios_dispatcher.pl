@@ -306,6 +306,8 @@ sub daemonize {
     open STDERR, ">/dev/null";
     POSIX::setsid();
     chdir '/';
+
+    log_message "Daemonized."
 }
 
 # Remove all records that match any filter
@@ -485,7 +487,8 @@ sub parse_config {
     my ($config,         $refdaemon,             $refdirectory,
         $reffrequency,   $ref_connection_string, $ref_user,
         $ref_password,   $ref_syslog,            $ref_debug,
-        $ref_hostfilter, $ref_servfilter,        $ref_lablfilter
+        $ref_hostfilter, $ref_servfilter,        $ref_lablfilter,
+        $uid, $gid
     ) = @_;
 
     my $confH;
@@ -548,6 +551,12 @@ sub parse_config {
             $value =~ m|^/(.*)/$|;
             $$ref_lablfilter = qr/$1/;
         }
+        elsif ( $param eq 'uid' ) {
+            $$uid = $value;
+        }
+        elsif ( $param eq 'gid' ) {
+            $$gid = $value;
+        }
         else {
             die "Unknown parameter '$param' in configuration file\n";
         }
@@ -572,6 +581,8 @@ my $config;
 my $hostname_filter;
 my $service_filter;
 my $label_filter;
+my $uid;
+my $gid;
 
 my $result = GetOptions(
     "daemon"      => \$daemon,
@@ -594,7 +605,8 @@ parse_config(
     $config,           \$daemon,            \$directory,
     \$frequency,       \$connection_string, \$user,
     \$password,        \$syslog,            \$debug,
-    \$hostname_filter, \$service_filter,    \$label_filter
+    \$hostname_filter, \$service_filter,    \$label_filter,
+    \$uid, \$gid
 );
 
 # Usage if missing parameters in command line or configuration file
@@ -604,6 +616,36 @@ Pod::Usage::pod2usage( -exitval => 1, -verbose => 1 ) unless ($directory);
 $frequency = 5 unless $frequency;
 
 daemonize if $daemon;
+
+## drop root if asked
+# start with group rights
+if ( defined $gid ) {
+    my $oldgid = $(;
+
+    die("Invalid GID: $gid.") if $gid < 0;
+
+    $( = $gid;        # GID
+    $) = "$gid $gid"; # EGID
+
+    die("Could not set GIDs ($() to '$gid'.")
+        if $( ne "$gid $gid";
+
+    log_message("Groups privileges dropped from '$oldgid' to '$('");
+}
+
+# drop user rights now
+if ( defined $uid ) {
+    my $olduid = $<;
+
+    die("Invalid UID: $uid.") if $uid < 0;
+
+    $< = $> = $uid; # UID, EUID
+
+    die("Could not set UID ($<) to '$uid'.")
+        if $< != $uid;
+
+    log_message("User privileges dropped from '$olduid' to '$<'");
+}
 
 # Let's work
 watch_directory(
