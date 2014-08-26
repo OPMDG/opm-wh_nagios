@@ -6,7 +6,7 @@
 \unset ECHO
 \i t/setup.sql
 
-SELECT plan(147);
+SELECT plan(168);
 
 CREATE OR REPLACE FUNCTION test_set_opm_session(IN p_user name)
   RETURNS SETOF TEXT LANGUAGE plpgsql AS $f$
@@ -112,6 +112,7 @@ SELECT has_function('wh_nagios', 'get_metric_timespan', '{bigint}', 'Function "w
 SELECT has_function('wh_nagios', 'grant_dispatcher', '{name}', 'Function "wh_nagios.grant_dispatcher" should exists.');
 SELECT has_function('wh_nagios', 'list_metrics', '{bigint}', 'Function "wh_nagios.list_metrics" should exists.');
 SELECT has_function('wh_nagios', 'list_services', '{}', 'Function "wh_nagios.list_services" should exists.');
+SELECT has_function('wh_nagios', 'merge_service', '{bigint, bigint, boolean}', 'Function "wh_nagios.merge_service" should exists.');
 SELECT has_function('wh_nagios', 'purge_services', '{bigint[]}', 'Function "wh_nagios.purge_services" should exists.');
 SELECT has_function('wh_nagios', 'revoke_dispatcher', '{name}', 'Function "wh_nagios.revoke_dispatcher" should exists.');
 SELECT has_function('wh_nagios', 'update_services_validity', '{interval, bigint[]}', 'Function "wh_nagios.update_services_validity" should exists.');
@@ -855,6 +856,191 @@ SELECT set_eq(
 );
 
 
+SELECT diag(E'\n==== Merging services ====\n');
+
+SELECT lives_ok($$
+    INSERT INTO wh_nagios.hub (id, data) VALUES
+        (1, ARRAY[
+            'MIN','0',
+            'WARNING','209715200',
+            'VALUE','1',
+            'CRITICAL','524288000',
+            'LABEL','val',
+            'HOSTNAME','server1',
+            'MAX','0',
+            'UOM','',
+            'SERVICESTATE','OK',
+            'TIMET','1357038000',
+            'SERVICEDESC','Test merge src'
+        ]),
+        (2, ARRAY[
+            'MIN','0',
+            'WARNING','209715200',
+            'VALUE','6284356',
+            'CRITICAL','524288000',
+            'LABEL','val',
+            'HOSTNAME','server1',
+            'MAX','0',
+            'UOM','',
+            'SERVICESTATE','OK',
+            'TIMET','1357124400',
+            'SERVICEDESC','Test merge dst'
+        ]),
+        (3, ARRAY[
+            'MIN','0',
+            'WARNING','209715200',
+            'VALUE','7284356',
+            'CRITICAL','524288000',
+            'LABEL','val',
+            'HOSTNAME','server2',
+            'MAX','0',
+            'UOM','',
+            'SERVICESTATE','OK',
+            'TIMET','1357038000',
+            'SERVICEDESC','Test merge other server 1'
+        ]),
+        (4, ARRAY[
+            'MIN','0',
+            'WARNING','209715200',
+            'VALUE','7284356',
+            'CRITICAL','524288000',
+            'LABEL','val',
+            'HOSTNAME','server2',
+            'MAX','0',
+            'UOM','B',
+            'SERVICESTATE','OK',
+            'TIMET','1357124400',
+            'SERVICEDESC','Test merge other server 2'
+        ]),
+        (5, ARRAY[
+            'MIN','0',
+            'WARNING','209715200',
+            'VALUE','7284356',
+            'CRITICAL','524288000',
+            'LABEL','val2',
+            'HOSTNAME','server2',
+            'MAX','0',
+            'UOM','',
+            'SERVICESTATE','OK',
+            'TIMET','1357124400',
+            'SERVICEDESC','Test merge other server 3'
+        ]
+    )$$,
+    'Insert some datas for merging in "wh_nagios.hub".'
+);
+
+SELECT results_eq(
+    $$SELECT * FROM wh_nagios.dispatch_record(10000,true)$$,
+    $$VALUES (5::bigint,0::bigint)$$,
+    'Dispatch the 5 records.'
+);
+
+SELECT set_eq(
+    $$SELECT id,service,extract(epoch FROM oldest_record) AS old, extract(epoch FROM newest_record) AS new FROM wh_nagios.services WHERE id IN (3,4,5,6,7)$$,
+    $$VALUES (3::bigint,'Test merge src',1357038000,1357038000),
+    (4,'Test merge dst',1357124400,1357124400),
+    (5,'Test merge other server 1',1357038000,1357038000),
+    (6,'Test merge other server 2',1357124400,1357124400),
+    (7,'Test merge other server 3',1357124400,1357124400)
+    $$,
+    'Services "Test merge src", "Test merge dst" and "Test merge other server x" should have been created.'
+);
+
+SELECT set_eq(
+    $$SELECT COUNT(*) FROM wh_nagios.counters_detail_5$$,
+    $$VALUES (1)$$,
+    'Partition table related to service "Test merge src" should only contains 1 row.'
+);
+
+SELECT set_eq(
+    $$SELECT * FROM wh_nagios.merge_service(-1, -2)$$,
+    $$VALUES (false)$$,
+    'Merging two unexisting services should return false.'
+);
+
+SELECT set_eq(
+    $$SELECT * FROM wh_nagios.merge_service(-1, 1)$$,
+    $$VALUES (false)$$,
+    'Merging an unexisting service with an existing one should return false.'
+);
+
+SELECT set_eq(
+    $$SELECT * FROM wh_nagios.merge_service(3, 5)$$,
+    $$VALUES (false)$$,
+    'Merging an two services from different servers should return false.'
+);
+
+SAVEPOINT merge ;
+
+SELECT set_eq(
+    $$SELECT * FROM wh_nagios.merge_service(3, 4)$$,
+    $$VALUES (true)$$,
+    'Merging two services should return true.'
+);
+
+SELECT set_eq(
+    $$SELECT COUNT(*) FROM wh_nagios.services WHERE service = 'Test merge src'$$,
+    $$VALUES (1)$$,
+    'Merging two services without deleting source should not delete source.'
+);
+
+ROLLBACK TO merge ;
+
+SELECT set_eq(
+    $$SELECT * FROM wh_nagios.merge_service(3, 4, true)$$,
+    $$VALUES (true)$$,
+    'Merging two services should return true.'
+);
+
+SELECT set_eq(
+    $$SELECT COUNT(*) FROM wh_nagios.services WHERE service = 'Test merge src'$$,
+    $$VALUES (0)$$,
+    'Merging two services with deleting source should delete source.'
+);
+
+SELECT set_eq(
+    $$SELECT COUNT(*) FROM wh_nagios.metrics m JOIN wh_nagios.services s ON s.id = m.id_service WHERE s.service = 'Test merge dst'$$,
+    $$VALUES (1)$$,
+    'Merging two services with an identical metric should not duplicate it.'
+);
+
+SELECT set_eq(
+    $$SELECT id,service,extract(epoch FROM oldest_record) AS old, extract(epoch FROM newest_record) AS new FROM wh_nagios.services WHERE id = 4$$,
+    $$VALUES (4,'Test merge dst',1357038000,1357124400)$$,
+    'Metadata from services "Test merge dst" should have been updated.'
+);
+
+SELECT set_eq(
+    $$SELECT COUNT(*) FROM wh_nagios.counters_detail_5$$,
+    $$VALUES (2)$$,
+    'Partition table related to service "Test merge src" should now contains 2 rows.'
+);
+
+SELECT set_eq(
+    $$SELECT * FROM wh_nagios.merge_service(6, 5, true)$$,
+    $$VALUES (true)$$,
+    'Merging two services whith different units should return true.'
+);
+
+SELECT set_eq(
+    $$SELECT COUNT(*) FROM wh_nagios.metrics m JOIN wh_nagios.services s ON s.id = m.id_service WHERE s.service = 'Test merge other server 1'$$,
+    $$VALUES (2)$$,
+    'Merging two services with different units should create a new metric.'
+);
+
+SELECT set_eq(
+    $$SELECT * FROM wh_nagios.merge_service(7, 5, true)$$,
+    $$VALUES (true)$$,
+    'Merging two services whith different metric name should return true.'
+);
+
+SELECT set_eq(
+    $$SELECT COUNT(*) FROM wh_nagios.metrics m JOIN wh_nagios.services s ON s.id = m.id_service WHERE s.service = 'Test merge other server 1'$$,
+    $$VALUES (3)$$,
+    'Merging two services whith different metric name should create a new metric.'
+);
+
+
 SELECT diag(E'\n==== Drop wh_nagios ====\n');
 
 SELECT lives_ok(
@@ -892,6 +1078,7 @@ SELECT hasnt_function('wh_nagios', 'get_metric_timespan', '{bigint}', 'Function 
 SELECT hasnt_function('wh_nagios', 'grant_dispatcher', '{name}', 'Function "wh_nagios.grant_dispatcher" should not exists anymore.');
 SELECT hasnt_function('wh_nagios', 'list_metrics', '{bigint}', 'Function "wh_nagios.list_metrics" should not exists anymore.');
 SELECT hasnt_function('wh_nagios', 'list_services', '{}', 'Function "wh_nagios.list_services" should not exists anymore.');
+SELECT hasnt_function('wh_nagios', 'merge_service', '{bigint, bigint, boolean}', 'Function "wh_nagios.merge_service" should not exists anymore.');
 SELECT hasnt_function('wh_nagios', 'purge_services', '{bigint[]}', 'Function "wh_nagios.purge_services" should not exists anymore.');
 SELECT hasnt_function('wh_nagios', 'revoke_dispatcher', '{name}', 'Function "wh_nagios.revoke_dispatcher" should not exists anymore.');
 SELECT hasnt_function('wh_nagios', 'update_services_validity', '{interval, bigint[]}', 'Function "wh_nagios.update_services_validity" should not exists anymore.');
