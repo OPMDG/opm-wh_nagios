@@ -13,13 +13,13 @@ sub get_links {
     my $context = shift;
     my $ret = [];
     if ($context->{'location'} eq "main_menu") {
-        push ($ret,
+        push (@{$ret},
             title => "some link",
             route => "wh_nagios_services",
             class => "glyphicon glyphicon-hdd"
         );
         if ( $self->user_level eq "admin" ) {
-            push ($ret,
+            push (@{$ret},
                 title => "some admin link",
                 route => "wh_nagios_services",
                 class => "glyphicon glyphicon-cog"
