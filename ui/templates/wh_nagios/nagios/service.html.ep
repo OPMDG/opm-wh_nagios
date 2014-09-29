@@ -15,7 +15,7 @@
       <table class="table table-condensed table-hover">
         <thead>
           <tr>
-            <th>Name</th><th>Value</th>
+            <th><%= l('Name') %></th><th><%= l('Value') %></th>
           </tr>
         </thead>
         <tbody>
