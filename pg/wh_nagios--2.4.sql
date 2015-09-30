@@ -219,6 +219,12 @@ BEGIN
     objname  := 'wh_nagios.hub';
     EXECUTE pg_catalog.format('GRANT %s ON %s %s TO %I', appright, objtype, objname, approle);
     RETURN NEXT;
+
+    appright := 'INSERT';
+    objtype  := 'TABLE';
+    objname  := 'wh_nagios.hub_reject';
+    EXECUTE pg_catalog.format('GRANT %s ON %s %s TO %I', appright, objtype, objname, approle);
+    RETURN NEXT;
 END
 $$;
 

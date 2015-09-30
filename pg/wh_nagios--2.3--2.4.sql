@@ -85,6 +85,56 @@ REVOKE ALL ON FUNCTION wh_nagios.merge_service( bigint, bigint, boolean ) FROM p
 COMMENT ON FUNCTION wh_nagios.merge_service( bigint, bigint, boolean ) IS
 'Merge data from a wh_nagios service into another.' ;
 
+/* fix ACL on wh_nagios.hub_reject, see issue #26 */
+CREATE OR REPLACE
+FUNCTION wh_nagios.grant_dispatcher(IN p_rolname name)
+RETURNS TABLE (operat text, approle name, appright text, objtype text, objname text)
+LANGUAGE plpgsql STRICT VOLATILE LEAKPROOF SECURITY DEFINER
+SET search_path TO public
+AS $$
+DECLARE
+    v_dbname name := pg_catalog.current_database();
+BEGIN
+    operat   := 'GRANT';
+    approle  := p_rolname;
+
+    appright := 'CONNECT';
+    objtype  := 'DATABASE';
+    objname  := v_dbname;
+    EXECUTE pg_catalog.format('GRANT %s ON %s %I TO %I', appright, objtype, objname, approle);
+    RETURN NEXT;
+
+    appright := 'USAGE';
+    objtype  := 'SCHEMA';
+    objname  := 'wh_nagios';
+    EXECUTE pg_catalog.format('GRANT %s ON %s %I TO %I', appright, objtype, objname, approle);
+    RETURN NEXT;
+
+    appright := 'USAGE';
+    objtype  := 'SEQUENCE';
+    objname  := 'wh_nagios.hub_id_seq';
+    EXECUTE pg_catalog.format('GRANT %s ON %s %s TO %I', appright, objtype, objname, approle);
+    RETURN NEXT;
+
+    appright := 'INSERT';
+    objtype  := 'TABLE';
+    objname  := 'wh_nagios.hub';
+    EXECUTE pg_catalog.format('GRANT %s ON %s %s TO %I', appright, objtype, objname, approle);
+    RETURN NEXT;
+
+    appright := 'INSERT';
+    objtype  := 'TABLE';
+    objname  := 'wh_nagios.hub_reject';
+    EXECUTE pg_catalog.format('GRANT %s ON %s %s TO %I', appright, objtype, objname, approle);
+    RETURN NEXT;
+END
+$$;
+
+REVOKE ALL ON FUNCTION wh_nagios.grant_dispatcher(IN name) FROM public;
+
+COMMENT ON FUNCTION wh_nagios.grant_dispatcher(IN name)
+    IS 'Grant a role to dispatch performance data in warehouse wh_nagios.';
+
 
 -- This line must be the last one, so that every functions are owned
 -- by the database owner
