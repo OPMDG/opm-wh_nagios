@@ -114,6 +114,20 @@ sub parse_perfstring {
         }
         push @perfs, $p if $p;
     }
+
+    # create special perfdata if no perfdata
+    if (@perfs eq 0) {
+        $p = {
+            label    => ' ',
+            value    => '',
+            uom      => '',
+            warning  => '',
+            critical => '',
+            min      => '',
+            max      => ''
+        };
+        push @perfs, $p;
+    }
     return \@perfs;
 }
 

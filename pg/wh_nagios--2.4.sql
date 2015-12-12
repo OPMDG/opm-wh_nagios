@@ -574,45 +574,47 @@ TODO: Handle seracl
                     END IF;
                 END IF;
 
-                --Does the metric exists ?
-                SELECT l.* INTO metricsrow
-                FROM wh_nagios.metrics AS l
-                WHERE id_service = servicesrow.id
-                    AND label = (cur->'label');
+                -- Does the metric exists ? only create if it's real perfdata,
+                -- not a " " label
+                IF (cur->'label' != ' ') THEN
+                    SELECT l.* INTO metricsrow
+                    FROM wh_nagios.metrics AS l
+                    WHERE id_service = servicesrow.id
+                        AND label = (cur->'label');
 
-                IF NOT FOUND THEN
-                    msg_err := 'Error during INSERT on wh_nagios.metrics: %L - %L';
+                    IF NOT FOUND THEN
+                        msg_err := 'Error during INSERT on wh_nagios.metrics: %L - %L';
 
-                    -- The trigger on wh_nagios.services_metric will create the partition counters_detail_$service_id automatically
-                    INSERT INTO wh_nagios.metrics (id_service, label, unit, min, max, warning, critical)
-                    VALUES (servicesrow.id, cur->'label', cur->'uom', (cur->'min')::numeric, (cur->'max')::numeric, (cur->'warning')::numeric, (cur->'critical')::numeric)
-                    RETURNING * INTO STRICT metricsrow;
+                        -- The trigger on wh_nagios.services_metric will create the partition counters_detail_$service_id automatically
+                        INSERT INTO wh_nagios.metrics (id_service, label, unit, min, max, warning, critical)
+                        VALUES (servicesrow.id, cur->'label', cur->'uom', (cur->'min')::numeric, (cur->'max')::numeric, (cur->'warning')::numeric, (cur->'critical')::numeric)
+                        RETURNING * INTO STRICT metricsrow;
+                    END IF;
+
+                    --Do we need to update the metric ?
+                    IF ( ( (cur->'uom') IS NOT NULL AND (metricsrow.unit <> (cur->'uom') OR (metricsrow.unit IS NULL)) )
+                        OR ( (cur->'min') IS NOT NULL AND (metricsrow.min <> (cur->'min')::numeric OR (metricsrow.min IS NULL)) )
+                        OR ( (cur->'max') IS NOT NULL AND (metricsrow.max <> (cur->'max')::numeric OR (metricsrow.max IS NULL)) )
+                        OR ( (cur->'warning') IS NOT NULL AND (metricsrow.warning <> (cur->'warning')::numeric OR (metricsrow.warning IS NULL)) )
+                        OR ( (cur->'critical') IS NOT NULL AND (metricsrow.critical <> (cur->'critical')::numeric OR (metricsrow.critical IS NULL)) )
+                    ) THEN
+                        msg_err := 'Error during UPDATE on wh_nagios.metrics: %L - %L';
+
+                        EXECUTE pg_catalog.format('UPDATE wh_nagios.metrics SET
+                                unit = %L,
+                                min = %L,
+                                max = %L,
+                                warning = %L,
+                                critical = %L
+                            WHERE id = $1',
+                            cur->'uom',
+                            cur->'min',
+                            cur->'max',
+                            cur->'warning',
+                            cur->'critical'
+                        ) USING metricsrow.id;
+                    END IF;
                 END IF;
-
-                --Do we need to update the metric ?
-                IF ( ( (cur->'uom') IS NOT NULL AND (metricsrow.unit <> (cur->'uom') OR (metricsrow.unit IS NULL)) )
-                    OR ( (cur->'min') IS NOT NULL AND (metricsrow.min <> (cur->'min')::numeric OR (metricsrow.min IS NULL)) )
-                    OR ( (cur->'max') IS NOT NULL AND (metricsrow.max <> (cur->'max')::numeric OR (metricsrow.max IS NULL)) )
-                    OR ( (cur->'warning') IS NOT NULL AND (metricsrow.warning <> (cur->'warning')::numeric OR (metricsrow.warning IS NULL)) )
-                    OR ( (cur->'critical') IS NOT NULL AND (metricsrow.critical <> (cur->'critical')::numeric OR (metricsrow.critical IS NULL)) )
-                ) THEN
-                    msg_err := 'Error during UPDATE on wh_nagios.metrics: %L - %L';
-
-                    EXECUTE pg_catalog.format('UPDATE wh_nagios.metrics SET
-                            unit = %L,
-                            min = %L,
-                            max = %L,
-                            warning = %L,
-                            critical = %L
-                        WHERE id = $1',
-                        cur->'uom',
-                        cur->'min',
-                        cur->'max',
-                        cur->'warning',
-                        cur->'critical'
-                    ) USING metricsrow.id;
-                END IF;
-
 
                 IF (servicesrow.id IS NOT NULL AND servicesrow.last_cleanup < now() - '10 days'::interval) THEN
                     PERFORM wh_nagios.cleanup_service(servicesrow.id);
@@ -621,17 +623,21 @@ TODO: Handle seracl
 
                 msg_err := pg_catalog.format('Error during INSERT on counters_detail_%s: %%L - %%L', metricsrow.id);
 
-                EXECUTE pg_catalog.format(
-                    'INSERT INTO wh_nagios.counters_detail_%s (date_records,records)
-                    VALUES (
-                        date_trunc(''day'',timestamp with time zone ''epoch''+%L * INTERVAL ''1 second''),
-                        array[row(timestamp with time zone ''epoch''+%L * INTERVAL ''1 second'',%L )]::public.metric_value[]
-                    )',
-                    metricsrow.id,
-                    cur->'timet',
-                    cur->'timet',
-                    cur->'value'
-                );
+                -- Do we need to insert a value ? if label is " " then perfdata
+                -- was empty
+                IF (cur->'label' != ' ') THEN
+                    EXECUTE pg_catalog.format(
+                        'INSERT INTO wh_nagios.counters_detail_%s (date_records,records)
+                        VALUES (
+                            date_trunc(''day'',timestamp with time zone ''epoch''+%L * INTERVAL ''1 second''),
+                            array[row(timestamp with time zone ''epoch''+%L * INTERVAL ''1 second'',%L )]::public.metric_value[]
+                        )',
+                        metricsrow.id,
+                        cur->'timet',
+                        cur->'timet',
+                        cur->'value'
+                    );
+                END IF;
 
                 -- one line has been processed with success !
                 processed := processed  + 1;
