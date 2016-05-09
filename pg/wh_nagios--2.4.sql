@@ -297,9 +297,12 @@ BEGIN
     RETURN NEW;
 EXCEPTION
     WHEN duplicate_table THEN
-        EXECUTE format('TRUNCATE TABLE wh_nagios.counters_detail_%s', NEW.id);
+        -- This can happen when restoring a logical backup, just ignore the
+        -- error.
+        RAISE LOG 'Table % already exists, continuing anyway',
+            pg_catalog.format('wh_nagios.counters_detail_%s', NEW.id);
         RETURN NEW;
-END
+END;
 $$;
 
 REVOKE ALL ON FUNCTION wh_nagios.create_partition_on_insert_metric() FROM public;

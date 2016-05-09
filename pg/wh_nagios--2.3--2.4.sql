@@ -418,6 +418,27 @@ rows that couldn''t be dispatched, with the exception message.';
 
 SELECT * FROM public.register_api('wh_nagios.dispatch_record(integer, boolean)'::regprocedure);
 
+-- Automatically create a new partition when a service is added.
+CREATE OR REPLACE FUNCTION wh_nagios.create_partition_on_insert_metric()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    EXECUTE pg_catalog.format('CREATE TABLE wh_nagios.counters_detail_%s (date_records date, records public.metric_value[])', NEW.id);
+    EXECUTE pg_catalog.format('CREATE INDEX ON wh_nagios.counters_detail_%s USING btree(date_records)', NEW.id);
+    EXECUTE pg_catalog.format('REVOKE ALL ON TABLE wh_nagios.counters_detail_%s FROM public', NEW.id);
+
+    RETURN NEW;
+EXCEPTION
+    WHEN duplicate_table THEN
+        -- This can happen when restoring a logical backup, just ignore the
+        -- error.
+        RAISE LOG 'Table % already exists, continuing anyway',
+            pg_catalog.format('wh_nagios.counters_detail_%s', NEW.id);
+        RETURN NEW;
+END;
+$$;
+
 
 
 -- This line must be the last one, so that every functions are owned
