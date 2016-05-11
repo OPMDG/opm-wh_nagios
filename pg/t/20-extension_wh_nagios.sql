@@ -164,6 +164,7 @@ SELECT set_eq(
     $$VALUES ('GRANT','dispatch1','USAGE','SCHEMA','wh_nagios'),
       ('GRANT','dispatch1','USAGE','SEQUENCE','wh_nagios.hub_id_seq'),
       ('GRANT','dispatch1','INSERT','TABLE','wh_nagios.hub'),
+      ('GRANT','dispatch1','EXECUTE','FUNCTION','wh_nagios.dispatch_record(integer, bool)'),
       ('GRANT','dispatch1','CONNECT','DATABASE','opm')$$,
     'User "dispatch1" should have been granted to dispatch in "wh_nagios".'
 );
