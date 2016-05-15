@@ -439,6 +439,70 @@ EXCEPTION
 END;
 $$;
 
+/* wh_nagios.cleanup_service(bigint)
+Aggregate all data by day in an array, to avoid space overhead and benefit TOAST compression.
+This will be done for every metric corresponding to the service.
+
+@p_serviceid: ID of service to cleanup.
+@return : true if everything went well.
+*/
+CREATE OR REPLACE
+FUNCTION wh_nagios.cleanup_service(p_serviceid bigint)
+RETURNS boolean
+LANGUAGE plpgsql STRICT VOLATILE SECURITY DEFINER
+SET search_path TO public
+AS $$
+DECLARE
+  v_servicefound boolean ;
+  v_partid       bigint ;
+  v_partname     text ;
+BEGIN
+    SELECT ( pg_catalog.count(1) = 1 ) INTO v_servicefound
+    FROM wh_nagios.services AS s
+    WHERE s.id = p_serviceid;
+
+    IF NOT v_servicefound THEN
+        RETURN false;
+    END IF;
+
+    -- Try to purge data before the cleanup
+    PERFORM wh_nagios.purge_services(p_serviceid);
+
+    FOR v_partid IN SELECT id FROM wh_nagios.metrics WHERE id_service = p_serviceid LOOP
+        v_partname := pg_catalog.format('counters_detail_%s', v_partid);
+
+        EXECUTE pg_catalog.format('CREATE TEMP TABLE tmp (LIKE wh_nagios.%I)', v_partname);
+
+        EXECUTE pg_catalog.format('WITH list AS (SELECT date_records, pg_catalog.count(1) AS num
+                FROM wh_nagios.%I
+                GROUP BY date_records
+            ),
+            del AS (DELETE FROM wh_nagios.%I c
+                USING list l WHERE c.date_records = l.date_records AND l.num > 1
+                RETURNING c.*
+            ),
+            rec AS (SELECT date_records, (pg_catalog.unnest(records)).*
+                FROM del
+            )
+            INSERT INTO tmp
+            SELECT date_records, pg_catalog.array_agg(row(timet, value)::public.metric_value)
+            FROM rec
+            GROUP BY date_records
+            UNION ALL
+            SELECT cd.* FROM wh_nagios.%I cd JOIN list l USING (date_records)
+            WHERE num = 1;
+        ', v_partname, v_partname, v_partname, v_partname);
+        EXECUTE pg_catalog.format('TRUNCATE wh_nagios.%I', v_partname);
+        EXECUTE pg_catalog.format('INSERT INTO wh_nagios.%I SELECT * FROM tmp', v_partname);
+        DROP TABLE tmp;
+    END LOOP;
+
+    UPDATE wh_nagios.services SET last_cleanup = pg_catalog.now() WHERE id = p_serviceid;
+
+    RETURN true;
+END
+$$;
+
 
 
 -- This line must be the last one, so that every functions are owned

@@ -721,6 +721,9 @@ BEGIN
         RETURN false;
     END IF;
 
+    -- Try to purge data before the cleanup
+    PERFORM wh_nagios.purge_services(p_serviceid);
+
     FOR v_partid IN SELECT id FROM wh_nagios.metrics WHERE id_service = p_serviceid LOOP
         v_partname := pg_catalog.format('counters_detail_%s', v_partid);
 
