@@ -309,8 +309,7 @@ REVOKE ALL ON FUNCTION wh_nagios.create_partition_on_insert_metric() FROM public
 
 COMMENT ON FUNCTION wh_nagios.create_partition_on_insert_metric() IS
 'Trigger that create a dedicated partition when a new metric is inserted in the table wh_nagios.metrics,
-and GRANT the necessary ACL on it.
-If the dedicated partition is alreay present (which should not happen, due to the other trigger), it''s truncated.';
+and GRANT the necessary ACL on it.';
 
 
 --Automatically delete a partition when a service is removed.

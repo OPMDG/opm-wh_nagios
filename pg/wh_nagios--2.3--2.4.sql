@@ -439,6 +439,10 @@ EXCEPTION
 END;
 $$;
 
+COMMENT ON FUNCTION wh_nagios.create_partition_on_insert_metric() IS
+'Trigger that create a dedicated partition when a new metric is inserted in the table wh_nagios.metrics,
+and GRANT the necessary ACL on it.';
+
 /* wh_nagios.cleanup_service(bigint)
 Aggregate all data by day in an array, to avoid space overhead and benefit TOAST compression.
 This will be done for every metric corresponding to the service.
