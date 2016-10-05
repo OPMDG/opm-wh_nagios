@@ -151,6 +151,13 @@ sub parse_perfline {
     my ($line) = @_;
     my %parsed;
 
+    if ( $line =~ /^\s*$/ ) {
+        $debug and log_message
+                "DEBUG: Ignoring empty line";
+
+        return;
+    }
+
     # Performance lines are made of KEY::VALUE\tKEY::VALUE...
     my @elements = split( "\t", $line );
     unless ( @elements > 0 ) {
