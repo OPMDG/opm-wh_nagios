@@ -167,7 +167,8 @@ sub parse_perfline {
 
             $debug
                 and die
-                "FATAL: Can't understand this attribute : <$element>\n";
+                "FATAL: Can't understand this attribute : <$element>\n"
+                ."Full line was : <$line>";
             log_message
                 "ERROR: Can't understand this attribute : <$element>";
 
@@ -449,6 +450,8 @@ sub watch_directory {
 
             $dbh or $dbh = dbconnect(); # We reconnect for each batch of files
 
+            $debug and log_message "Processing '$entry'...";
+
             my $parsed = read_file("$dirname/$entry");
 
             # Get rid of records that should be filtered
@@ -462,7 +465,7 @@ sub watch_directory {
             # If not inserted, we retry
             unless ($inserted) {
                 $dbh->disconnect();
-        undef $dbh;
+                undef $dbh;
 
                 log_message
                     "ERROR: Could not insert '$entry' datas. Retrying.";
