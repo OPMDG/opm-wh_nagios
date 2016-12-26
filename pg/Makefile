@@ -1,9 +1,5 @@
 EXTENSION = wh_nagios
-DATA = wh_nagios--2.2.sql \
-	   wh_nagios--2.2--2.3.sql \
-	   wh_nagios--2.3.sql \
-	   wh_nagios--2.3--2.4.sql \
-	   wh_nagios--2.4.sql
+DATA = $(wildcard wh_nagios*--*.sql)
 
 PG_CONFIG = pg_config
 PGXS := $(shell $(PG_CONFIG) --pgxs)
