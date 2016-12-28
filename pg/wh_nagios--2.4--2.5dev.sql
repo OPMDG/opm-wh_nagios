@@ -23,8 +23,10 @@ DECLARE
     v_stmt text;
     v_id_service bigint;
     v_id_metric bigint;
+    v_nb bigint;
+    i bigint;
 BEGIN
-    RAISE NOTICE 'Step 1, locking all tables...';
+    RAISE LOG 'Step 1, locking all tables...';
 
     LOCK TABLE wh_nagios.hub;
 
@@ -39,9 +41,12 @@ BEGIN
         RAISE DEBUG 'step1 - statement: %', v_stmt;
         EXECUTE v_stmt;
     END LOOP;
-    RAISE NOTICE 'done';
+    RAISE LOG 'done';
 
-    RAISE NOTICE 'Step 2, migrate perfdata (this can be quite long)...';
+    RAISE LOG 'Step 2, migrate perfdata (this can be quite long)...';
+
+    SELECT COUNT(*) INTO STRICT v_nb FROM wh_nagios.metrics;
+    i := 1;
 
     FOR v_id_service IN
         SELECT id
@@ -66,6 +71,10 @@ BEGIN
             FROM wh_nagios.metrics
             WHERE id_service = v_id_service
         LOOP
+            IF ((i % 100 = 0) OR (i = v_nb)) THEN
+                RAISE LOG 'Migrating perfdata, % / %', i, v_nb;
+            END IF;
+            i := i + 1;
             v_stmt = format('INSERT INTO wh_nagios.service_counters_%s SELECT '
                 '%2$s, date_records, records '
                 'FROM wh_nagios.counters_detail_%2$s',
@@ -85,7 +94,7 @@ BEGIN
         EXECUTE v_stmt;
     END LOOP;
 
-    RAISE NOTICE 'done';
+    RAISE LOG 'done';
 END;
 $_$ language plpgsql;
 
