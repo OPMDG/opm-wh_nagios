@@ -2,7 +2,7 @@
 # This program is open source, licensed under the PostgreSQL License.
 # For license terms, see the LICENSE file.
 #
-# Copyright (C) 2012-2014: Open PostgreSQL Monitoring Development Group
+# Copyright (C) 2012-2018: Open PostgreSQL Monitoring Development Group
 
 
 =head1 About
@@ -688,7 +688,7 @@ This library is free software; you can redistribute it and/or modify it under th
 the rest is
 
 This program is open source, licensed under the PostgreSQL License.
-Copyright (C) 2012-2014 Open PostgreSQL Monitoring Development Group
+Copyright (C) 2012-2018 Open PostgreSQL Monitoring Development Group
 
 
 
