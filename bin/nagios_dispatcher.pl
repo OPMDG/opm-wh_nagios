@@ -52,7 +52,7 @@ my $syslog = 0;
 # They do the parsing of the PERFDATA string
 
 my $value                        = qr/[-+]?[\d\.,]+/;
-my $value_re                     = qr/$value(?:e$value)?|NaN/;
+my $value_re                     = qr/(?:$value(?:e$value)?)|NaN|U/;
 my $value_with_negative_infinity = qr/$value_re|~/;
 
 sub parse_perfrecord {
@@ -285,6 +285,8 @@ sub read_file {
             $perfcounter{SERVICEDESC}  = $parsed_line->{SERVICEDESC};
             $perfcounter{SERVICESTATE} = $parsed_line->{SERVICESTATE};
             $perfcounter{LABEL}        = $perfcounterref->{label};
+            $perfcounter{VALUE}        = 'NaN'
+                if $perfcounterref->{value} eq 'U';
 
             # Okay, lets work on the units. We normalize everything
             my ( $basic_uom, $multfactor )
