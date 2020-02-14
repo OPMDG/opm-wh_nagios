@@ -6,7 +6,7 @@
 \unset ECHO
 \i t/setup.sql
 
-SELECT plan(168);
+SELECT plan(165);
 
 CREATE OR REPLACE FUNCTION test_set_opm_session(IN p_user name)
   RETURNS SETOF TEXT LANGUAGE plpgsql AS $f$
@@ -102,11 +102,11 @@ SELECT set_eq(
 );
 
 SELECT has_function('wh_nagios', 'cleanup_service', '{bigint}', 'Function "wh_nagios.cleanup_service" should exists.');
-SELECT has_function('wh_nagios', 'create_partition_on_insert_metric', '{}', 'Function "wh_nagios.create_partition_on_insert_metric" should exists.');
+SELECT has_function('wh_nagios', 'create_partition_on_insert_service', '{}', 'Function "wh_nagios.create_partition_on_insert_service" should exists.');
 SELECT has_function('wh_nagios', 'delete_metrics', '{bigint[]}', 'Function "wh_nagios.delete_metrics" should exists.');
 SELECT has_function('wh_nagios', 'delete_services', '{bigint[]}', 'Function "wh_nagios.delete_services" should exists.');
 SELECT has_function('wh_nagios', 'dispatch_record', '{integer,boolean}', 'Function "wh_nagios.dispatch_record" should exists.');
-SELECT has_function('wh_nagios', 'drop_partition_on_delete_metric', '{}', 'Function "wh_nagios.create_partition_on_insert_metric" should exists.');
+SELECT has_function('wh_nagios', 'drop_partition_on_delete_service', '{}', 'Function "wh_nagios.create_partition_on_insert_service" should exists.');
 SELECT has_function('wh_nagios', 'get_metric_data', '{bigint, timestamp with time zone, timestamp with time zone}', 'Function "wh_nagios.get_metric_data" (bigint, timestamp with time zone, timestamp with time zone) should exists.');
 SELECT has_function('wh_nagios', 'get_metric_timespan', '{bigint}', 'Function "wh_nagios.get_metric_timespan" (bigint) should exists.');
 SELECT has_function('wh_nagios', 'grant_dispatcher', '{name}', 'Function "wh_nagios.grant_dispatcher" should exists.');
@@ -117,8 +117,8 @@ SELECT has_function('wh_nagios', 'purge_services', '{bigint[]}', 'Function "wh_n
 SELECT has_function('wh_nagios', 'revoke_dispatcher', '{name}', 'Function "wh_nagios.revoke_dispatcher" should exists.');
 SELECT has_function('wh_nagios', 'update_services_validity', '{interval, bigint[]}', 'Function "wh_nagios.update_services_validity" should exists.');
 
-SELECT has_trigger('wh_nagios', 'metrics', 'create_partition_on_insert_metric', 'Trigger "create_partition_on_insert_metric" on table "wh_nagios.metrics" should exists.');
-SELECT has_trigger('wh_nagios', 'metrics', 'drop_partition_on_delete_metric', 'Trigger "drop_partition_on_delete_metric" on table "wh_nagios.metrics" should exists.');
+SELECT has_trigger('wh_nagios', 'services', 'create_partition_on_insert_service', 'Trigger "create_partition_on_insert_service" on table "wh_nagios.services" should exists.');
+SELECT has_trigger('wh_nagios', 'services', 'drop_partition_on_delete_service', 'Trigger "drop_partition_on_delete_service" on table "wh_nagios.services" should exists.');
 
 
 
@@ -346,9 +346,9 @@ SELECT set_eq(
     'Table "wh_nagios.hub" should be empty now.'
 );
 
--- check table wh_nagios.counters_detail_1
-SELECT has_table('wh_nagios', 'counters_detail_1',
-    'Table "wh_nagios.counters_detail_1" should exists.'
+-- check table wh_nagios.service_counters_1
+SELECT has_table('wh_nagios', 'service_counters_1',
+    'Table "wh_nagios.service_counters_1" should exists.'
 );
 
 SELECT set_eq(
@@ -360,38 +360,25 @@ SELECT set_eq(
 SELECT set_eq(
     $$SELECT date_records, extract(epoch FROM (c.records[1]).timet),
             (c.records[1]).value
-        FROM wh_nagios.counters_detail_1 AS c$$,
+        FROM wh_nagios.service_counters_1 AS c$$,
     $$VALUES ('2013-01-01'::date, 1357038000::double precision,
         5284356::numeric)$$,
-    'Table "wh_nagios.counters_detail_1" should have value of record 9.'
+    'Table "wh_nagios.service_counters_1" should have value of record 9.'
 );
 
 -- check table wh_nagios.counters_detail_2
-SELECT has_table('wh_nagios', 'counters_detail_2',
-    'Table "wh_nagios.counters_detail_2" should exists.'
+SELECT has_table('wh_nagios', 'service_counters_2',
+    'Table "wh_nagios.service_counters_2" should exists.'
 );
 
 SELECT set_eq(
     $$SELECT date_records, extract(epoch FROM (c.records[1]).timet),
             (c.records[1]).value
-        FROM wh_nagios.counters_detail_2 AS c$$,
-    $$VALUES ('2013-01-01'::date, 1357038000::double precision,
-        6284356::numeric)$$,
-    'Table "wh_nagios.counters_detail_2" should have value of record 10.'
-);
-
--- check table wh_nagios.counters_detail_3
-SELECT has_table('wh_nagios', 'counters_detail_3',
-    'Table "wh_nagios.counters_detail_3" should exists.'
-);
-
-SELECT set_eq(
-    $$SELECT date_records, extract(epoch FROM (c.records[1]).timet),
-            (c.records[1]).value
-        FROM wh_nagios.counters_detail_3 AS c$$,
-    $$VALUES ('2013-01-01'::date, 1357038000::double precision,
-        7284356::numeric)$$,
-    'Table "wh_nagios.counters_detail_3" should have value of record 11.'
+        FROM wh_nagios.service_counters_2 AS c$$,
+    $$VALUES
+        ('2013-01-01'::date, 1357038000::double precision, 6284356::numeric),
+        ('2013-01-01'::date, 1357038000::double precision, 7284356::numeric)$$,
+    'Table "wh_nagios.service_counters_2" should have value of record 10 and 11.'
 );
 
 -- check table public.services
@@ -688,11 +675,11 @@ SELECT set_eq(
     'Table "wh_nagios.services" fields should reflect last cleanup activity.'
 );
 
-SELECT diag('counters: '|| s) FROM wh_nagios.counters_detail_1 AS s;
+SELECT diag('counters: '|| s) FROM wh_nagios.service_counters_1 AS s;
 SELECT set_eq(
     $$SELECT date_records, extract(epoch FROM timet), value
         FROM (SELECT date_records, (unnest(records)).*
-            FROM wh_nagios.counters_detail_1
+            FROM wh_nagios.service_counters_1
         ) as t$$,
     $$VALUES
         ('2013-01-01'::date, 1357038000::double precision, 5284356::numeric),
@@ -702,15 +689,15 @@ SELECT set_eq(
         ('2013-01-01'::date, 1357038600, 5284356),
         ('2013-01-01'::date, 1357038900, 5284356)
         $$,
-    'Consecutive records with same value of "wh_nagios.counters_detail_1" should not be cleaned.'
+    'Consecutive records with same value of "wh_nagios.service_counters_1" should not be cleaned.'
 );
 
 SELECT set_eq(
-    $$SELECT date_records FROM wh_nagios.counters_detail_1$$,
+    $$SELECT date_records FROM wh_nagios.service_counters_1$$,
     $$VALUES
         ('2013-01-01'::date)
     $$,
-    'Records of "wh_nagios.counters_detail_1" should be aggregated.'
+    'Records of "wh_nagios.service_counters_1" should be aggregated.'
 );
 
 SELECT diag(E'\n==== Updating a service validity ====\n');
@@ -771,13 +758,9 @@ SELECT set_eq(
 );
 
 -- check tables has been drop'ed
-SELECT hasnt_table('wh_nagios', 'counters_detail_2',
-    'Table "wh_nagios.counters_detail_2" should not exists anymore.'
+SELECT hasnt_table('wh_nagios', 'service_counters_2',
+    'Table "wh_nagios.service_counters_2" should not exists anymore.'
 );
-SELECT hasnt_table('wh_nagios', 'counters_detail_3',
-    'Table "wh_nagios.counters_detail_3" should not exists anymore.'
-);
-
 
 SELECT diag(E'\n==== Check privileges ====\n');
 
@@ -834,8 +817,8 @@ SELECT set_eq(
 );
 
 SELECT set_eq(
-    $$SELECT relname FROM pg_class WHERE relkind = 'r' AND relname ~ '^counters_detail'$$,
-    $$VALUES ('counters_detail_1')$$,
+    $$SELECT relname FROM pg_class WHERE relkind = 'r' AND relname ~ '^service_counters'$$,
+    $$VALUES ('service_counters_1')$$,
     'All partitions related to metrics should still be there.'
 );
 
@@ -850,8 +833,10 @@ SELECT set_eq(
     $$VALUES (0)$$,
     'Metric 1 should be deleted.'
 );
+
+-- currently fails
 SELECT set_eq(
-    $$SELECT count(*) FROM pg_class WHERE relkind = 'r' AND relname ~ '^counters_detail'$$,
+    $$SELECT count(*) FROM pg_class WHERE relkind = 'r' AND relname ~ '^service_counters'$$,
     $$VALUES (0)$$,
     'Partition related to metric 1 should be dropped.'
 );
@@ -947,8 +932,10 @@ SELECT set_eq(
     'Services "Test merge src", "Test merge dst" and "Test merge other server x" should have been created.'
 );
 
+-- SELECT diag('wh_nagios: '|| relname) FROM pg_class AS s WHERE relname ~ '^service_coun';
+
 SELECT set_eq(
-    $$SELECT COUNT(*) FROM wh_nagios.counters_detail_5$$,
+    $$SELECT COUNT(*) FROM wh_nagios.service_counters_4$$,
     $$VALUES (1)$$,
     'Partition table related to service "Test merge src" should only contains 1 row.'
 );
@@ -1012,7 +999,7 @@ SELECT set_eq(
 );
 
 SELECT set_eq(
-    $$SELECT COUNT(*) FROM wh_nagios.counters_detail_5$$,
+    $$SELECT COUNT(*) FROM wh_nagios.service_counters_4$$,
     $$VALUES (2)$$,
     'Partition table related to service "Test merge src" should now contains 2 rows.'
 );
