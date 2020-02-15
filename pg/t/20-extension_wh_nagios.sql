@@ -6,7 +6,7 @@
 \unset ECHO
 \i t/setup.sql
 
-SELECT plan(165);
+SELECT plan(170);
 
 CREATE OR REPLACE FUNCTION test_set_opm_session(IN p_user name)
   RETURNS SETOF TEXT LANGUAGE plpgsql AS $f$
@@ -54,6 +54,12 @@ SELECT lives_ok(
 SELECT has_extension(
     'wh_nagios',
     'Extension "wh_nagios" should exist.'
+);
+
+SELECT set_eq(
+    $$SELECT extversion FROM pg_extension WHERE extname = 'wh_nagios'$$,
+    $$ VALUES ('2.6') $$,
+    'Extension version should be the latest one.'
 );
 
 SELECT extension_schema_is('wh_nagios', 'wh_nagios',
@@ -834,11 +840,34 @@ SELECT set_eq(
     'Metric 1 should be deleted.'
 );
 
--- currently fails
+SELECT set_eq(
+    $$SELECT count(*) FROM pg_class WHERE relkind = 'r' AND relname ~ '^service_counters'$$,
+    $$VALUES (1)$$,
+    'Partition related to metric 1 should not be dropped.'
+);
+
+SELECT set_eq(
+    $$SELECT count(*) FROM wh_nagios.service_counters_1 WHERE id_metric = 1$$,
+    $$VALUES (0)$$,
+    'All records for metric 1 should have been deleted.'
+);
+
+SELECT set_eq(
+    $$SELECT * FROM wh_nagios.delete_services(1)$$,
+    $$VALUES (1)$$,
+    'Delete a service should return the id of the service.'
+);
+
+SELECT set_eq(
+    $$SELECT count(*) FROM wh_nagios.services$$,
+    $$VALUES (0)$$,
+    'Service 1 should be deleted.'
+);
+
 SELECT set_eq(
     $$SELECT count(*) FROM pg_class WHERE relkind = 'r' AND relname ~ '^service_counters'$$,
     $$VALUES (0)$$,
-    'Partition related to metric 1 should be dropped.'
+    'Partition related to service 1 should be dropped.'
 );
 
 
