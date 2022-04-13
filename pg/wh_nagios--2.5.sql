@@ -318,7 +318,7 @@ LANGUAGE plpgsql
 AS $$
 BEGIN
     EXECUTE format('DROP TABLE wh_nagios.service_counters_%s', OLD.id) ;
-    RETURN OLD;
+    RETURN NULL;
 EXCEPTION
     WHEN undefined_table THEN
         RETURN NULL;
