@@ -6,6 +6,20 @@
 --
 -- Copyright (C) 2012-2022: Open PostgreSQL Monitoring Development Group
 
+CREATE OR REPLACE
+FUNCTION wh_nagios.drop_partition_on_delete_service()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    EXECUTE format('DROP TABLE wh_nagios.service_counters_%s', OLD.id) ;
+    RETURN OLD;
+EXCEPTION
+    WHEN undefined_table THEN
+        RETURN NULL;
+END
+$$;
+
 /* wh_nagios.delete_metrics(VARIADIC bigint[])
 Delete specific metrics.
 
