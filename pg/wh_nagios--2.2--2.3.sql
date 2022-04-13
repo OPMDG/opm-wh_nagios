@@ -4,7 +4,7 @@
 -- This program is open source, licensed under the PostgreSQL License.
 -- For license terms, see the LICENSE file.
 --
--- Copyright (C) 2012-2020: Open PostgreSQL Monitoring Development Group
+-- Copyright (C) 2012-2022: Open PostgreSQL Monitoring Development Group
 
 
 DROP FUNCTION wh_nagios.get_metric_data(text, text, text, timestamp with time zone, timestamp with time zone) ;
